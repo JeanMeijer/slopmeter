@@ -30,9 +30,9 @@ function printHelp() {
     "  codegraph-usage [--claude] [--codex] [--opencode] [--format png|svg] [--output ./heatmap-last-year.png]\n\n",
   );
   process.stdout.write("Options:\n");
-  process.stdout.write("  --claude, --Claude          Render Claude Code graph\n");
-  process.stdout.write("  --codex, --Codex            Render Codex graph\n");
-  process.stdout.write("  --opencode, --OpenCodex     Render Open Code graph\n");
+  process.stdout.write("  --claude                    Render Claude Code graph\n");
+  process.stdout.write("  --codex                     Render Codex graph\n");
+  process.stdout.write("  --opencode                  Render Open Code graph\n");
   process.stdout.write("  -f, --format                Output format: png or svg (default: png)\n");
   process.stdout.write("  -o, --output                Output file path (default: ./heatmap-last-year.png)\n");
   process.stdout.write("  -h, --help                  Show this help\n");
@@ -89,14 +89,8 @@ async function main() {
       format: { type: "string", short: "f" },
       help: { type: "boolean", short: "h", default: false },
       claude: { type: "boolean", default: false },
-      Claude: { type: "boolean", default: false },
-      cloudCode: { type: "boolean", default: false },
-      CloudCode: { type: "boolean", default: false },
       codex: { type: "boolean", default: false },
-      Codex: { type: "boolean", default: false },
       opencode: { type: "boolean", default: false },
-      OpenCode: { type: "boolean", default: false },
-      OpenCodex: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });

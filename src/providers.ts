@@ -33,14 +33,10 @@ export function hasData(providerData: ProviderData) {
   return providerData.daily.some((row) => row.totalTokens > 0);
 }
 
-function hasAnyFlag(values: Record<string, unknown>, keys: string[]) {
-  return keys.some((key) => Boolean(values[key]));
-}
-
 export function getRequestedProviders(values: Record<string, unknown>) {
-  const wantClaude = hasAnyFlag(values, ["claude", "Claude", "cloudCode", "CloudCode"]);
-  const wantCodex = hasAnyFlag(values, ["codex", "Codex"]);
-  const wantOpenCode = hasAnyFlag(values, ["opencode", "OpenCode", "OpenCodex"]);
+  const wantClaude = Boolean(values.claude);
+  const wantCodex = Boolean(values.codex);
+  const wantOpenCode = Boolean(values.opencode);
 
   const requested = new Set<ProviderId>();
   if (wantClaude) requested.add("claude");

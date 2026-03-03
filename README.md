@@ -52,12 +52,6 @@ codegraph-usage --codex
 codegraph-usage --opencode
 ```
 
-Accepted provider aliases:
-
-- Claude: `--claude`, `--Claude`, `--cloudCode`, `--CloudCode`
-- Codex: `--codex`, `--Codex`
-- Open Code: `--opencode`, `--OpenCode`, `--OpenCodex`
-
 ## What the image shows
 
 - Monday-first contribution-style heatmap for the last year.
