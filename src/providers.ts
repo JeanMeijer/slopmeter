@@ -29,11 +29,11 @@ export async function loadProviderRows(
   };
 }
 
-export function hasData(rows: CliDailyRow[]): boolean {
+export function hasData(rows: CliDailyRow[]) {
   return rows.some((row) => row.totalTokens > 0);
 }
 
-export function getRequestedProviders(values: Record<string, unknown>): ProviderId[] {
+export function getRequestedProviders(values: Record<string, unknown>) {
   const wantClaude = Boolean(values.claude || values.Claude || values.cloudCode || values.CloudCode);
   const wantCodex = Boolean(values.codex || values.Codex);
   const wantOpenCode = Boolean(values.opencode || values.OpenCode || values.OpenCodex);

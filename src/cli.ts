@@ -20,7 +20,7 @@ const PNG_BASE_WIDTH = 1000;
 const PNG_SCALE = 4;
 const PNG_RENDER_WIDTH = PNG_BASE_WIDTH * PNG_SCALE;
 
-function printHelp(): void {
+function printHelp() {
   process.stdout.write("codegraph-usage\n\n");
   process.stdout.write(
     "Generate rolling 1-year usage heatmap image(s) (today is the latest day).\n\n",
@@ -38,7 +38,7 @@ function printHelp(): void {
   process.stdout.write("  -h, --help                  Show this help\n");
 }
 
-function normalizeFormat(format: string): OutputFormat {
+function normalizeFormat(format: string) {
   const lower = format.toLowerCase();
 
   if (lower !== "png" && lower !== "svg") {
@@ -48,7 +48,7 @@ function normalizeFormat(format: string): OutputFormat {
   return lower;
 }
 
-function inferFormat(formatArg: string | undefined, outputArg: string | undefined): OutputFormat {
+function inferFormat(formatArg: string | undefined, outputArg: string | undefined) {
   if (formatArg) {
     return normalizeFormat(formatArg);
   }
@@ -66,7 +66,7 @@ function inferFormat(formatArg: string | undefined, outputArg: string | undefine
   return "png";
 }
 
-async function writeOutputImage(outputPath: string, format: OutputFormat, svg: string): Promise<void> {
+async function writeOutputImage(outputPath: string, format: OutputFormat, svg: string) {
   if (format === "svg") {
     writeFileSync(outputPath, svg, "utf8");
     return;
@@ -80,7 +80,7 @@ async function writeOutputImage(outputPath: string, format: OutputFormat, svg: s
   writeFileSync(outputPath, pngBuffer);
 }
 
-async function main(): Promise<void> {
+async function main() {
   let spinner: Ora | undefined;
 
   const { values } = parseArgs({

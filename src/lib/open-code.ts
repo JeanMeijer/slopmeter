@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CliDailyRow } from "./interfaces";
@@ -23,17 +23,17 @@ interface OpenCodeMessage {
   tokens?: OpenCodeTokens;
 }
 
-export function loadOpenCodeRows(startDate: string, endDate: string): CliDailyRow[] {
+export async function loadOpenCodeRows(startDate: string, endDate: string) {
   const openCodeBaseDir = process.env.OPENCODE_DATA_DIR?.trim()
     ? resolve(process.env.OPENCODE_DATA_DIR)
     : join(homedir(), ".local", "share", "opencode");
   const messagesDir = join(openCodeBaseDir, "storage", "message");
-  const files = listFilesRecursive(messagesDir, ".json");
+  const files = await listFilesRecursive(messagesDir, ".json");
   const totals = new Map<string, number>();
   const dedupe = new Set<string>();
 
   for (const filePath of files) {
-    const content = readFileSync(filePath, "utf8");
+    const content = await readFile(filePath, "utf8");
     const message = JSON.parse(content) as OpenCodeMessage;
 
     if (!message.providerID || !message.modelID) {

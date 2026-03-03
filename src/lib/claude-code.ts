@@ -1,11 +1,11 @@
 import type { DailyUsage } from "ccusage/data-loader";
 import type { CliDailyRow } from "./interfaces";
 
-function isoDateToCompact(value: string): string {
+function isoDateToCompact(value: string) {
   return value.replaceAll("-", "");
 }
 
-function toDailyRows(daily: DailyUsage[]): CliDailyRow[] {
+function toDailyRows(daily: DailyUsage[]) {
   return daily
     .map((entry) => ({
       date: entry.date,

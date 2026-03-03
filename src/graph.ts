@@ -83,7 +83,7 @@ export const heatmapThemes: Record<ProviderId, HeatmapTheme> = {
 
 const daysOfWeekMonday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function getAllDays(start: string, end: string): string[] {
+function getAllDays(start: string, end: string) {
   const days: string[] = [];
   let curr = new Date(`${start}T00:00:00`);
   const endDate = new Date(`${end}T00:00:00`);
@@ -96,7 +96,7 @@ function getAllDays(start: string, end: string): string[] {
   return days;
 }
 
-function getMondayBasedWeekday(dateIso: string): number {
+function getMondayBasedWeekday(dateIso: string) {
   const sundayBased = new Date(`${dateIso}T00:00:00`).getDay();
   return (sundayBased + 6) % 7;
 }
@@ -117,7 +117,7 @@ function chunkByWeek(days: (string | null)[]): (string | null)[][] {
   return weeks;
 }
 
-function getMonthLabel(week: (string | null)[]): string | null {
+function getMonthLabel(week: (string | null)[]) {
   const lastDay = [...week].reverse().find(Boolean);
   if (!lastDay) {
     return null;
@@ -126,7 +126,7 @@ function getMonthLabel(week: (string | null)[]): string | null {
   return new Date(`${lastDay}T00:00:00`).toLocaleString("en-US", { month: "short" });
 }
 
-function defaultColourMap(value: number, max: number, colorCount: number): number {
+function defaultColourMap(value: number, max: number, colorCount: number) {
   if (colorCount <= 0) return 0;
   if (max <= 0 || value <= 0) return 0;
 
@@ -134,7 +134,7 @@ function defaultColourMap(value: number, max: number, colorCount: number): numbe
   return Math.min(Math.max(index, 0), colorCount - 1);
 }
 
-function getCalendarGrid(startDate: string, endDate: string): CalendarGrid {
+function getCalendarGrid(startDate: string, endDate: string) {
   const allDays = getAllDays(startDate, endDate);
   const paddedDays = padToWeekStartMonday(allDays);
   const weeks = chunkByWeek(paddedDays);
@@ -148,7 +148,7 @@ function getCalendarGrid(startDate: string, endDate: string): CalendarGrid {
   return { weeks, monthLabels };
 }
 
-function getSectionLayout(weekCount: number): SectionLayout {
+function getSectionLayout(weekCount: number) {
   const cellSize = 14;
   const gap = 4;
   const leftLabelWidth = 34;
@@ -181,7 +181,7 @@ function getSectionLayout(weekCount: number): SectionLayout {
 function drawHeatmapSection(
   svg: SvgBuilder,
   { x, y, grid, layout, daily, title, colors }: DrawHeatmapSectionOptions,
-): SvgBuilder {
+) {
   const valueByDate = new Map<string, number>(daily.map((row) => [row.date, row.totalTokens]));
   const maxValue = Math.max(...daily.map((row) => row.totalTokens), 0);
 
@@ -303,7 +303,7 @@ export function renderUsageHeatmapsSvg({
   startDate,
   endDate,
   sections,
-}: RenderUsageHeatmapsSvgOptions): string {
+}: RenderUsageHeatmapsSvgOptions) {
   const grid = getCalendarGrid(startDate, endDate);
   const layout = getSectionLayout(grid.weeks.length);
   const outerPadding = 12;

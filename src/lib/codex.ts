@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CliDailyRow } from "./interfaces";
@@ -23,11 +23,11 @@ interface CodexEventEntry {
   payload?: CodexEventPayload;
 }
 
-function numberOrZero(value: unknown): number {
+function numberOrZero(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-function normalizeCodexUsage(value: unknown): CodexRawUsage | null {
+function normalizeCodexUsage(value: unknown) {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -48,7 +48,7 @@ function normalizeCodexUsage(value: unknown): CodexRawUsage | null {
   };
 }
 
-function subtractCodexUsage(current: CodexRawUsage, previous: CodexRawUsage | null): CodexRawUsage {
+function subtractCodexUsage(current: CodexRawUsage, previous: CodexRawUsage | null) {
   return {
     input_tokens: Math.max(current.input_tokens - (previous?.input_tokens ?? 0), 0),
     cached_input_tokens: Math.max(current.cached_input_tokens - (previous?.cached_input_tokens ?? 0), 0),
@@ -61,16 +61,16 @@ function subtractCodexUsage(current: CodexRawUsage, previous: CodexRawUsage | nu
   };
 }
 
-export function loadCodexRows(startDate: string, endDate: string): CliDailyRow[] {
+export async function loadCodexRows(startDate: string, endDate: string) {
   const codexHome = process.env.CODEX_HOME?.trim()
     ? resolve(process.env.CODEX_HOME)
     : join(homedir(), ".codex");
   const sessionsDir = join(codexHome, "sessions");
-  const files = listFilesRecursive(sessionsDir, ".jsonl");
+  const files = await listFilesRecursive(sessionsDir, ".jsonl");
   const totals = new Map<string, number>();
 
   for (const filePath of files) {
-    const content = readFileSync(filePath, "utf8");
+    const content = await readFile(filePath, "utf8");
     const lines = content.split(/\r?\n/);
     let previousTotals: CodexRawUsage | null = null;
 
