@@ -21,14 +21,18 @@ interface SectionLayout {
   leftLabelWidth: number;
   cellSize: number;
   gap: number;
+  headerCaptionY: number;
   titleY: number;
   monthLabelY: number;
   legendY: number;
+  statsCaptionY: number;
+  statsValueY: number;
 }
 
 interface DrawHeatmapSectionOptions {
   x: number;
   y: number;
+  allDays: string[];
   grid: CalendarGrid;
   layout: SectionLayout;
   daily: CliDailyRow[];
@@ -82,6 +86,30 @@ export const heatmapThemes: Record<ProviderId, HeatmapTheme> = {
 };
 
 const daysOfWeekMonday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const numberFormatter = new Intl.NumberFormat("en-US");
+
+function formatTokenTotal(value: number) {
+  const units = [
+    { size: 1_000_000_000_000, suffix: "T" },
+    { size: 1_000_000_000, suffix: "B" },
+    { size: 1_000_000, suffix: "M" },
+    { size: 1_000, suffix: "K" },
+  ];
+
+  for (const unit of units) {
+    if (value >= unit.size) {
+      const scaled = value / unit.size;
+      const precision = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+      const compact = scaled
+        .toFixed(precision)
+        .replace(/\.0+$/, "")
+        .replace(/(\.\d*[1-9])0+$/, "$1");
+      return `${compact}${unit.suffix}`;
+    }
+  }
+
+  return numberFormatter.format(value);
+}
 
 function getAllDays(start: string, end: string) {
   const days: string[] = [];
@@ -153,17 +181,24 @@ function getSectionLayout(weekCount: number) {
   const gap = 4;
   const leftLabelWidth = 34;
   const rightPadding = 20;
+  const metricCaptionValueGap = 14;
+  const headerValueY = 16;
+  const headerCaptionY = headerValueY - metricCaptionValueGap;
   const topPadding = 40;
   const monthHeaderHeight = 20;
-  const titleY = 16;
+  const titleY = headerValueY;
   const monthLabelY = topPadding + 4;
   const gridTop = topPadding + monthHeaderHeight;
   const gridHeight = 7 * cellSize + 6 * gap;
   const gridWidth = weekCount * cellSize + Math.max(weekCount - 1, 0) * gap;
   const legendY = gridTop + gridHeight + 10;
-  const legendHeight = 30;
+  const legendBottomY = legendY + cellSize;
+  const statsTopPadding = 16;
+  const statsCaptionY = legendBottomY + statsTopPadding;
+  const statsValueY = statsCaptionY + metricCaptionValueGap;
+  const statsBottomPadding = 8;
   const width = leftLabelWidth + gridWidth + rightPadding;
-  const height = gridTop + gridHeight + legendHeight;
+  const height = statsValueY + statsBottomPadding;
 
   return {
     width,
@@ -172,18 +207,54 @@ function getSectionLayout(weekCount: number) {
     leftLabelWidth,
     cellSize,
     gap,
+    headerCaptionY,
     titleY,
     monthLabelY,
     legendY,
+    statsCaptionY,
+    statsValueY,
   };
+}
+
+function computeStreaks(allDays: string[], valueByDate: Map<string, number>) {
+  let longestStreak = 0;
+  let running = 0;
+
+  for (const day of allDays) {
+    const active = (valueByDate.get(day) ?? 0) > 0;
+    if (active) {
+      running += 1;
+      if (running > longestStreak) {
+        longestStreak = running;
+      }
+    } else {
+      running = 0;
+    }
+  }
+
+  let currentStreak = 0;
+  for (let i = allDays.length - 1; i >= 0; i -= 1) {
+    const day = allDays[i];
+    const active = (valueByDate.get(day) ?? 0) > 0;
+    if (!active) {
+      break;
+    }
+    currentStreak += 1;
+  }
+
+  return { longestStreak, currentStreak };
 }
 
 function drawHeatmapSection(
   svg: SvgBuilder,
-  { x, y, grid, layout, daily, title, colors }: DrawHeatmapSectionOptions,
+  { x, y, allDays, grid, layout, daily, title, colors }: DrawHeatmapSectionOptions,
 ) {
   const valueByDate = new Map<string, number>(daily.map((row) => [row.date, row.totalTokens]));
   const maxValue = Math.max(...daily.map((row) => row.totalTokens), 0);
+  const totalTokens = daily.reduce((sum, row) => sum + Math.max(row.totalTokens, 0), 0);
+  const totalTokensLabel = formatTokenTotal(totalTokens);
+  const { longestStreak, currentStreak } = computeStreaks(allDays, valueByDate);
+  const rightEdge = x + layout.width - 8;
 
   svg = svg.text(
     {
@@ -195,6 +266,31 @@ function drawHeatmapSection(
       "font-family": "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
     },
     title,
+  );
+
+  svg = svg.text(
+    {
+      x: rightEdge,
+      y: y + layout.headerCaptionY,
+      fill: "#64748b",
+      "font-size": 9,
+      "text-anchor": "end",
+      "font-family": "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+    },
+    "Total tokens",
+  );
+
+  svg = svg.text(
+    {
+      x: rightEdge,
+      y: y + layout.titleY,
+      fill: "#0f172a",
+      "font-size": 12,
+      "font-weight": 600,
+      "text-anchor": "end",
+      "font-family": "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+    },
+    totalTokensLabel,
   );
 
   for (let i = 0; i < 7; i += 1) {
@@ -296,6 +392,57 @@ function drawHeatmapSection(
     "More",
   );
 
+  const longestLabelX = x + 8;
+  const currentLabelX = rightEdge;
+
+  svg = svg.text(
+    {
+      x: longestLabelX,
+      y: y + layout.statsCaptionY,
+      fill: "#64748b",
+      "font-size": 9,
+      "font-family": "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+    },
+    "Longest streak",
+  );
+
+  svg = svg.text(
+    {
+      x: longestLabelX,
+      y: y + layout.statsValueY,
+      fill: "#0f172a",
+      "font-size": 12,
+      "font-weight": 600,
+      "font-family": "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+    },
+    `${numberFormatter.format(longestStreak)} days`,
+  );
+
+  svg = svg.text(
+    {
+      x: currentLabelX,
+      y: y + layout.statsCaptionY,
+      fill: "#64748b",
+      "font-size": 9,
+      "text-anchor": "end",
+      "font-family": "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+    },
+    "Current streak",
+  );
+
+  svg = svg.text(
+    {
+      x: currentLabelX,
+      y: y + layout.statsValueY,
+      fill: "#0f172a",
+      "font-size": 12,
+      "font-weight": 600,
+      "text-anchor": "end",
+      "font-family": "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+    },
+    `${numberFormatter.format(currentStreak)} days`,
+  );
+
   return svg;
 }
 
@@ -304,6 +451,7 @@ export function renderUsageHeatmapsSvg({
   endDate,
   sections,
 }: RenderUsageHeatmapsSvgOptions) {
+  const allDays = getAllDays(startDate, endDate);
   const grid = getCalendarGrid(startDate, endDate);
   const layout = getSectionLayout(grid.weeks.length);
   const outerPadding = 12;
@@ -325,6 +473,7 @@ export function renderUsageHeatmapsSvg({
     svg = drawHeatmapSection(svg, {
       x: outerPadding,
       y: sectionY,
+      allDays,
       grid,
       layout,
       daily: section.daily,
