@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { UsageSummary } from "../interfaces";
 import {
-  addDailyTokenTotals,
   type DailyTokenTotals,
+  type ModelTokenTotals,
+  addDailyTokenTotals,
   getProviderInsights,
   getRecentWindowStart,
   listFilesRecursive,
@@ -30,25 +32,26 @@ interface OpenCodeMessage {
   tokens?: OpenCodeTokens;
 }
 
-function sumOpenCodeTokens(tokens?: OpenCodeTokens) {
+function sumOpenCodeTokens(tokens?: OpenCodeTokens): DailyTokenTotals {
   if (!tokens) {
     return {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheTokens: 0,
-      totalTokens: 0,
+      input: 0,
+      output: 0,
+      cache: { input: 0, output: 0 },
+      total: 0,
     };
   }
 
-  const inputTokens = (tokens?.input ?? 0) + (tokens?.cache?.read ?? 0);
-  const outputTokens = (tokens?.output ?? 0) + (tokens?.cache?.write ?? 0);
-  const cacheTokens = (tokens?.cache?.read ?? 0) + (tokens?.cache?.write ?? 0);
+  const cacheInput = tokens?.cache?.read ?? 0;
+  const cacheOutput = tokens?.cache?.write ?? 0;
+  const input = (tokens?.input ?? 0) + cacheInput;
+  const output = (tokens?.output ?? 0) + cacheOutput;
 
   return {
-    inputTokens,
-    outputTokens,
-    cacheTokens,
-    totalTokens: inputTokens + outputTokens + cacheTokens,
+    input,
+    output,
+    cache: { input: cacheInput, output: cacheOutput },
+    total: input + output,
   };
 }
 
@@ -70,13 +73,13 @@ async function parseOpenCodeFiles() {
   return Promise.all(files.map((file) => parseOpenCodeFile(file)));
 }
 
-export async function loadOpenCodeRows(start: Date, end: Date) {
+export async function loadOpenCodeRows(start: Date, end: Date): Promise<UsageSummary> {
   const messages = await parseOpenCodeFiles();
-  const totals = new Map<string, DailyTokenTotals>();
+  const totals = new Map<string, { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }>();
   const dedupe = new Set<string>();
   const recentStart = getRecentWindowStart(end, 30);
-  const modelTotals = new Map<string, number>();
-  const recentModelTotals = new Map<string, number>();
+  const modelTotals = new Map<string, ModelTokenTotals>();
+  const recentModelTotals = new Map<string, ModelTokenTotals>();
 
   for (const message of messages) {
     if (!message.providerID || !message.modelID) {
@@ -91,7 +94,7 @@ export async function loadOpenCodeRows(start: Date, end: Date) {
 
     const tokenTotals = sumOpenCodeTokens(message.tokens);
 
-    if (tokenTotals.totalTokens <= 0) {
+    if (tokenTotals.total <= 0) {
       continue;
     }
 
@@ -101,18 +104,37 @@ export async function loadOpenCodeRows(start: Date, end: Date) {
       continue;
     }
 
-    addDailyTokenTotals(totals, date, tokenTotals);
-
     const modelName = normalizeModelName(message.modelID);
 
-    modelTotals.set(modelName, (modelTotals.get(modelName) ?? 0) + tokenTotals.totalTokens);
-    
+    addDailyTokenTotals(totals, date, tokenTotals, modelName);
+
+    const existing = modelTotals.get(modelName);
+    if (existing) {
+      existing.input += tokenTotals.input;
+      existing.output += tokenTotals.output;
+      existing.cache.input += tokenTotals.cache.input;
+      existing.cache.output += tokenTotals.cache.output;
+      existing.total += tokenTotals.total;
+    } else {
+      modelTotals.set(modelName, { ...tokenTotals });
+    }
+
     if (date >= recentStart) {
-      recentModelTotals.set(modelName, (recentModelTotals.get(modelName) ?? 0) + tokenTotals.totalTokens);
+      const recentExisting = recentModelTotals.get(modelName);
+      if (recentExisting) {
+        recentExisting.input += tokenTotals.input;
+        recentExisting.output += tokenTotals.output;
+        recentExisting.cache.input += tokenTotals.cache.input;
+        recentExisting.cache.output += tokenTotals.cache.output;
+        recentExisting.total += tokenTotals.total;
+      } else {
+        recentModelTotals.set(modelName, { ...tokenTotals });
+      }
     }
   }
 
   return {
+    provider: "opencode",
     daily: totalsToRows(totals),
     insights: getProviderInsights(modelTotals, recentModelTotals),
   };

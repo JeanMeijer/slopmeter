@@ -1,34 +1,11 @@
-export type ProviderId = "claude" | "codex" | "openCode";
+import type { UsageSummary } from "../interfaces";
 
-export type CliDailyRow = {
-  date: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheTokens: number;
-  totalTokens: number;
-};
+export type ProviderId = UsageSummary["provider"];
 
-export type ModelUsageStat = {
-  modelName: string;
-  totalTokens: number;
-};
-
-export type ProviderInsights = {
-  mostUsedModel?: ModelUsageStat;
-  recentMostUsedModel?: ModelUsageStat;
-};
-
-export type ProviderData = {
-  daily: CliDailyRow[];
-  insights?: ProviderInsights;
-};
-
-export type ProviderRows = Record<ProviderId, ProviderData>;
-
-export const providerIds: ProviderId[] = ["claude", "codex", "openCode"];
+export const providerIds: ProviderId[] = ["claude", "codex", "opencode"];
 
 export const providerStatusLabel: Record<ProviderId, string> = {
   claude: "Claude code",
   codex: "Codex",
-  openCode: "Open Code",
+  opencode: "Open Code",
 };

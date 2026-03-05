@@ -1,5 +1,6 @@
 import svgBuilder, { type SVGBuilderInstance } from "svg-builder";
-import type { CliDailyRow, ModelUsageStat, ProviderId, ProviderInsights } from "./lib/interfaces";
+import type { DailyUsage, Insights, ModelUsage } from "./interfaces";
+import type { ProviderId } from "./lib/interfaces";
 import { formatLocalDate } from "./lib/utils";
 
 interface HeatmapTheme {
@@ -33,22 +34,22 @@ interface DrawHeatmapSectionOptions {
   allDays: string[];
   grid: CalendarGrid;
   layout: SectionLayout;
-  daily: CliDailyRow[];
-  insights?: ProviderInsights;
+  daily: DailyUsage[];
+  insights?: Insights;
   title: string;
   colors: string[];
 }
 
 interface RenderUsageHeatmapsSvgSection {
-  daily: CliDailyRow[];
-  insights?: ProviderInsights;
+  daily: DailyUsage[];
+  insights?: Insights;
   title: string;
   colors: string[];
 }
 
 interface ModelUsageRow {
   caption: string;
-  data: ModelUsageStat;
+  data: ModelUsage;
 }
 
 interface RenderUsageHeatmapsSvgOptions {
@@ -78,7 +79,7 @@ export const heatmapThemes: Record<ProviderId, HeatmapTheme> = {
       "#312e81", // indigo-900
     ],
   },
-  openCode: {
+  opencode: {
     title: "Open Code",
     colors: [
       "#f5f5f5", // neutral-100
@@ -147,7 +148,7 @@ function getAllDays(start: Date, end: Date) {
 
 function getMondayBasedWeekday(dateIso: string) {
   const sundayBased = new Date(`${dateIso}T00:00:00`).getDay();
-  
+
   return (sundayBased + 6) % 7;
 }
 
@@ -279,13 +280,16 @@ function drawHeatmapSection(
   svg: SVGBuilderInstance,
   { x, y, allDays, grid, layout, daily, insights, title, colors }: DrawHeatmapSectionOptions,
 ) {
-  const valueByDate = new Map<string, number>(daily.map((row) => [row.date, row.totalTokens]));
-  const maxValue = Math.max(...daily.map((row) => row.totalTokens), 0);
+  const valueByDate = new Map<string, number>();
+  for (let i = 0; i < daily.length; i++) {
+    valueByDate.set(allDays[i], daily[i].total);
+  }
+  const maxValue = Math.max(...daily.map((row) => row.total), 0);
   const rightEdge = x + layout.width - 8;
   const leftColumnX = x + 8;
-  const totalInputTokens = daily.reduce((sum, row) => sum + Math.max(row.inputTokens, 0), 0);
-  const totalOutputTokens = daily.reduce((sum, row) => sum + Math.max(row.outputTokens, 0), 0);
-  const totalTokens = daily.reduce((sum, row) => sum + Math.max(row.totalTokens, 0), 0);
+  const totalInputTokens = daily.reduce((sum, row) => sum + Math.max(row.input, 0), 0);
+  const totalOutputTokens = daily.reduce((sum, row) => sum + Math.max(row.output, 0), 0);
+  const totalTokens = daily.reduce((sum, row) => sum + Math.max(row.total, 0), 0);
   const topMetricGap = 120;
   const headerInputX = rightEdge - topMetricGap * 2;
   const headerOutputX = rightEdge - topMetricGap;
@@ -504,9 +508,9 @@ function drawHeatmapSection(
   for (const [index, row] of leftRows.entries()) {
     const captionY = layout.footerCaptionY;
     const valueY = layout.footerValueY;
-    const modelName = truncateText(row.data.modelName, 20);
+    const modelName = truncateText(row.data.name, 20);
     const modelX = index === 0 ? leftColumnX : leftSecondaryX;
-    const tokenLabel = `(${formatTokenTotal(row.data.totalTokens)})`;
+    const tokenLabel = `(${formatTokenTotal(row.data.tokens.total)})`;
 
     svg = svg.text(
       {

@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { UsageSummary } from "../interfaces";
 import {
-  addDailyTokenTotals,
   type DailyTokenTotals,
+  type ModelTokenTotals,
+  addDailyTokenTotals,
   getProviderInsights,
   getRecentWindowStart,
   listFilesRecursive,
@@ -122,8 +124,10 @@ async function parseCodexFile(filePath: string) {
   const content = await readFile(filePath, "utf8");
 
   const lines = content.split(/\r?\n/);
-  
-  return lines.map((line) => JSON.parse(line.trim()) as CodexEventEntry);
+
+  return lines
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line.trim()) as CodexEventEntry);
 }
 
 async function parseCodexFiles() {
@@ -132,19 +136,19 @@ async function parseCodexFiles() {
     : join(homedir(), ".codex");
 
   const sessionsDir = join(codexHome, "sessions");
-  
+
   const files = await listFilesRecursive(sessionsDir, ".jsonl");
 
   return Promise.all(files.map((file) => parseCodexFile(file)));
 }
 
-export async function loadCodexRows(start: Date, end: Date) {
+export async function loadCodexRows(start: Date, end: Date): Promise<UsageSummary> {
   const sessions = await parseCodexFiles();
 
-  const totals = new Map<string, DailyTokenTotals>();
+  const totals = new Map<string, { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }>();
   const recentStart = getRecentWindowStart(end, 30);
-  const modelTotals = new Map<string, number>();
-  const recentModelTotals = new Map<string, number>();
+  const modelTotals = new Map<string, ModelTokenTotals>();
+  const recentModelTotals = new Map<string, ModelTokenTotals>();
 
   for (const session of sessions) {
     let previousTotals: CodexRawUsage | null = null;
@@ -185,14 +189,14 @@ export async function loadCodexRows(start: Date, end: Date) {
         continue;
       }
 
-      const usage = {
-        inputTokens: rawUsage.input_tokens,
-        outputTokens: rawUsage.output_tokens,
-        cacheTokens: rawUsage.cached_input_tokens,
-        totalTokens: rawUsage.total_tokens,
+      const usage: DailyTokenTotals = {
+        input: rawUsage.input_tokens,
+        output: rawUsage.output_tokens,
+        cache: { input: rawUsage.cached_input_tokens, output: 0 },
+        total: rawUsage.total_tokens,
       };
 
-      if (usage.totalTokens <= 0) {
+      if (usage.total <= 0) {
         continue;
       }
 
@@ -202,28 +206,41 @@ export async function loadCodexRows(start: Date, end: Date) {
         continue;
       }
 
-      addDailyTokenTotals(totals, date, usage);
-
       const modelName = extractedModel ?? currentModel;
+      const normalizedModelName = modelName ? normalizeModelName(modelName) : undefined;
 
-      if (!modelName) {
-        continue;
-      }
+      addDailyTokenTotals(totals, date, usage, normalizedModelName);
 
-      const normalizedModelName = normalizeModelName(modelName);
+      if (normalizedModelName) {
+        const existing = modelTotals.get(normalizedModelName);
+        if (existing) {
+          existing.input += usage.input;
+          existing.output += usage.output;
+          existing.cache.input += usage.cache.input;
+          existing.cache.output += usage.cache.output;
+          existing.total += usage.total;
+        } else {
+          modelTotals.set(normalizedModelName, { ...usage });
+        }
 
-      modelTotals.set(normalizedModelName, (modelTotals.get(normalizedModelName) ?? 0) + usage.totalTokens);
-
-      if (date >= recentStart) {
-        recentModelTotals.set(
-          normalizedModelName,
-          (recentModelTotals.get(normalizedModelName) ?? 0) + usage.totalTokens,
-        );
+        if (date >= recentStart) {
+          const recentExisting = recentModelTotals.get(normalizedModelName);
+          if (recentExisting) {
+            recentExisting.input += usage.input;
+            recentExisting.output += usage.output;
+            recentExisting.cache.input += usage.cache.input;
+            recentExisting.cache.output += usage.cache.output;
+            recentExisting.total += usage.total;
+          } else {
+            recentModelTotals.set(normalizedModelName, { ...usage });
+          }
+        }
       }
     }
   }
 
   return {
+    provider: "codex",
     daily: totalsToRows(totals),
     insights: getProviderInsights(modelTotals, recentModelTotals),
   };

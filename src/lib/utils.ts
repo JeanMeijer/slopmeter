@@ -1,41 +1,91 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { CliDailyRow } from "./interfaces";
+import type { DailyUsage, Insights, ModelUsage } from "../interfaces";
 
 export function formatLocalDate(date: Date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
+
   return `${y}-${m}-${d}`;
 }
 
-export type DailyTokenTotals = Omit<CliDailyRow, "date">;
+export interface DailyTokenTotals {
+  input: number;
+  output: number;
+  cache: { input: number; output: number };
+  total: number;
+}
+
+export interface ModelTokenTotals {
+  input: number;
+  output: number;
+  cache: { input: number; output: number };
+  total: number;
+}
+
+type TokenTotals = { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> };
 
 export function addDailyTokenTotals(
-  totals: Map<string, DailyTokenTotals>,
+  totals: Map<string, TokenTotals>,
   date: Date,
   tokenTotals: DailyTokenTotals,
+  modelName?: string,
 ) {
   const key = formatLocalDate(date);
-
   const existing = totals.get(key);
+
   if (!existing) {
-    totals.set(key, tokenTotals);
+    const models = new Map<string, ModelTokenTotals>();
+    if (modelName) {
+      models.set(modelName, { ...tokenTotals });
+    }
+    totals.set(key, { tokens: { ...tokenTotals }, models });
     return;
   }
 
-  totals.set(key, {
-    inputTokens: existing.inputTokens + tokenTotals.inputTokens,
-    outputTokens: existing.outputTokens + tokenTotals.outputTokens,
-    cacheTokens: existing.cacheTokens + tokenTotals.cacheTokens,
-    totalTokens: existing.totalTokens + tokenTotals.totalTokens,
-  });
+  existing.tokens.input += tokenTotals.input;
+  existing.tokens.output += tokenTotals.output;
+  existing.tokens.cache.input += tokenTotals.cache.input;
+  existing.tokens.cache.output += tokenTotals.cache.output;
+  existing.tokens.total += tokenTotals.total;
+
+  if (modelName) {
+    const existingModel = existing.models.get(modelName);
+    if (existingModel) {
+      existingModel.input += tokenTotals.input;
+      existingModel.output += tokenTotals.output;
+      existingModel.cache.input += tokenTotals.cache.input;
+      existingModel.cache.output += tokenTotals.cache.output;
+      existingModel.total += tokenTotals.total;
+    } else {
+      existing.models.set(modelName, { ...tokenTotals });
+    }
+  }
 }
 
-export function totalsToRows(totals: Map<string, DailyTokenTotals>) {
+export function totalsToRows(
+  totals: Map<string, TokenTotals>,
+): DailyUsage[] {
   return [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, tokenTotals]) => ({ date, ...tokenTotals }));
+    .map(([, { tokens, models }]) => ({
+      input: tokens.input,
+      output: tokens.output,
+      cache: { input: tokens.cache.input, output: tokens.cache.output },
+      total: tokens.total,
+      breakdown: [...models.entries()]
+        .sort(([, a], [, b]) => b.total - a.total)
+        .map(([name, t]) => ({
+          name,
+          tokens: {
+            input: t.input,
+            output: t.output,
+            cache: { input: t.cache.input, output: t.cache.output },
+            total: t.total,
+          },
+        })),
+    }));
 }
 
 export async function listFilesRecursive(rootDir: string, extension: string) {
@@ -75,7 +125,7 @@ export function getRecentWindowStart(endDate: Date, days = 30) {
   const start = new Date(endDate);
 
   start.setDate(start.getDate() - (days - 1));
-  
+
   return start;
 }
 
@@ -83,25 +133,36 @@ export function normalizeModelName(modelName: string) {
   return modelName.replace(/-\d{8}$/, "");
 }
 
-export function getTopModel(modelTotals: Map<string, number>) {
+export function getTopModel(modelTotals: Map<string, ModelTokenTotals>): ModelUsage | undefined {
   let bestModel: string | undefined;
-  let bestTokens = 0;
+  let bestTotals: ModelTokenTotals | undefined;
 
-  for (const [modelName, totalTokens] of modelTotals) {
-    if (totalTokens > bestTokens) {
+  for (const [modelName, totals] of modelTotals) {
+    if (!bestTotals || totals.total > bestTotals.total) {
       bestModel = modelName;
-      bestTokens = totalTokens;
+      bestTotals = totals;
     }
   }
 
-  if (!bestModel || bestTokens <= 0) {
+  if (!bestModel || !bestTotals || bestTotals.total <= 0) {
     return undefined;
   }
 
-  return { modelName: bestModel, totalTokens: bestTokens };
+  return {
+    name: bestModel,
+    tokens: {
+      input: bestTotals.input,
+      output: bestTotals.output,
+      cache: { input: bestTotals.cache.input, output: bestTotals.cache.output },
+      total: bestTotals.total,
+    },
+  };
 }
 
-export function getProviderInsights(modelTotals: Map<string, number>, recentModelTotals: Map<string, number>) {
+export function getProviderInsights(
+  modelTotals: Map<string, ModelTokenTotals>,
+  recentModelTotals: Map<string, ModelTokenTotals>,
+): Insights | undefined {
   const mostUsedModel = getTopModel(modelTotals);
   const recentMostUsedModel = getTopModel(recentModelTotals);
 

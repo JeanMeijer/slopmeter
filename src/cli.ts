@@ -98,7 +98,7 @@ async function main() {
     },
     allowPositionals: false,
   });
-  
+
   validateArgs(parsed.values);
 
   const { values } = parsed;
@@ -133,7 +133,7 @@ async function main() {
       process.stdout.write(`${providerStatusLabel[provider]} ${found}\n`);
     }
 
-    const requested = providerIds.filter((id) => values[id.toLowerCase() as keyof CliArgValues]);
+    const requested = providerIds.filter((id) => values[id as keyof CliArgValues]);
     const explicit = requested.length > 0;
     const candidates = explicit ? requested : providerIds;
     const providersToRender = candidates.filter((p) => rowsByProvider[p]);
@@ -154,7 +154,7 @@ async function main() {
 
     const sections = providersToRender.map((provider) => {
       const data = rowsByProvider[provider]!;
-      
+
       return {
         daily: data.daily,
         title: heatmapThemes[provider].title,
