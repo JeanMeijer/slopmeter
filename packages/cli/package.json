@@ -1,0 +1,34 @@
+{
+  "name": "codegraph-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "codegraph-usage": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run typecheck && bun run build",
+    "start": "node dist/cli.js",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsup": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "@repo/eslint-config": "workspace:*",
+    "eslint": "^9.39.2"
+  },
+  "dependencies": {
+    "ora": "^9.3.0",
+    "ow": "^3.1.1",
+    "sharp": "^0.34.5",
+    "svg-builder": "^3.0.4"
+  }
+}

@@ -7,7 +7,12 @@ import sharp from "sharp";
 import { heatmapThemes, renderUsageHeatmapsSvg } from "./graph";
 import type { DailyUsage, Insights } from "./interfaces";
 import { formatLocalDate } from "./lib/utils";
-import { aggregateUsage, providerIds, providerStatusLabel, type ProviderId } from "./providers";
+import {
+  aggregateUsage,
+  providerIds,
+  providerStatusLabel,
+  type ProviderId,
+} from "./providers";
 
 type OutputFormat = "png" | "svg" | "json";
 type CliArgValues = {
@@ -74,7 +79,10 @@ function validateArgs(values: unknown): asserts values is CliArgValues {
   );
 }
 
-function inferFormat(formatArg: string | undefined, outputArg: string | undefined) {
+function inferFormat(
+  formatArg: string | undefined,
+  outputArg: string | undefined,
+) {
   if (formatArg) {
     ow(formatArg, ow.string.oneOf(["png", "svg", "json"] as const));
 
@@ -96,7 +104,11 @@ function inferFormat(formatArg: string | undefined, outputArg: string | undefine
   return "png" as const;
 }
 
-async function writeOutputImage(outputPath: string, format: Exclude<OutputFormat, "json">, svg: string) {
+async function writeOutputImage(
+  outputPath: string,
+  format: Exclude<OutputFormat, "json">,
+  svg: string,
+) {
   if (format === "svg") {
     writeFileSync(outputPath, svg, "utf8");
     return;
@@ -150,10 +162,9 @@ async function main() {
     const start = new Date(end);
     start.setFullYear(start.getFullYear() - 1);
 
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
     const format = inferFormat(values.format, values.output);
 
-    const rowsByProvider = await aggregateUsage({ start, end, timezone });
+    const rowsByProvider = await aggregateUsage({ start, end });
 
     spinner.stop();
 
@@ -163,7 +174,9 @@ async function main() {
       process.stdout.write(`${providerStatusLabel[provider]} ${found}\n`);
     }
 
-    const requested = providerIds.filter((id) => values[id as keyof CliArgValues]);
+    const requested = providerIds.filter(
+      (id) => values[id as keyof CliArgValues],
+    );
     const explicit = requested.length > 0;
     const candidates = explicit ? requested : providerIds;
     const providersToRender = candidates.filter((p) => rowsByProvider[p]);
@@ -177,7 +190,9 @@ async function main() {
     }
 
     if (providersToRender.length === 0) {
-      throw new Error("No usage data found for Claude code, Codex, or Open code.");
+      throw new Error(
+        "No usage data found for Claude code, Codex, or Open code.",
+      );
     }
 
     const exportProviders = providersToRender.map((provider) => {
@@ -192,7 +207,9 @@ async function main() {
       };
     });
 
-    const outputPath = resolve(values.output ?? `./heatmap-last-year.${format}`);
+    const outputPath = resolve(
+      values.output ?? `./heatmap-last-year.${format}`,
+    );
     mkdirSync(dirname(outputPath), { recursive: true });
 
     if (format === "json") {

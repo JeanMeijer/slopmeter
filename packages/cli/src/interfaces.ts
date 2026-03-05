@@ -11,7 +11,7 @@ export interface DailyUsage {
   cache: {
     input: number;
     output: number;
-  }
+  };
   total: number;
   // usage by model, sorted by total tokens
   breakdown: ModelUsage[];

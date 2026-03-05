@@ -1,19 +1,15 @@
-# codegraph CLI
+# codegraph
 
 TypeScript CLI that generates usage heatmaps for Claude Code, Codex, and Open Code for the rolling past year (ending today).
 
-Data is loaded directly in-process (no shelling out to provider CLIs).
+## Monorepo layout
 
-## Runtime and tooling
-
-- Package manager: Bun
-- Runtime: Node.js 22+
-- Module format: ESM
-- Type checking: TypeScript (`tsc`)
-- Build compiler: `tsup`
-- CLI argument parsing/validation: Node `parseArgs` + `ow`
-- SVG generation: `svg-builder`
-- PNG rendering: `sharp`
+```text
+packages/
+  cli/
+tooling/
+  typescript-config/
+```
 
 ## Setup
 
@@ -29,7 +25,10 @@ bun run check
 bun run build
 
 # Run from built output
-node dist/cli.js
+node packages/cli/dist/cli.js
+
+# Run the CLI package directly in dev mode
+bun --filter codegraph-cli run dev
 
 # Or if installed as a package binary
 codegraph-usage

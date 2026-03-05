@@ -58,7 +58,8 @@ function normalizeCodexUsage(value?: CodexRawUsage) {
   }
 
   const input = value.input_tokens ?? 0;
-  const cached = value.cached_input_tokens ?? value.cache_read_input_tokens ?? 0;
+  const cached =
+    value.cached_input_tokens ?? value.cache_read_input_tokens ?? 0;
   const output = value.output_tokens ?? 0;
   const reasoning = value.reasoning_output_tokens ?? 0;
   const total = value.total_tokens ?? 0;
@@ -72,16 +73,32 @@ function normalizeCodexUsage(value?: CodexRawUsage) {
   };
 }
 
-function subtractCodexUsage(current: CodexNormalizedUsage, previous: CodexNormalizedUsage | null) {
+function subtractCodexUsage(
+  current: CodexNormalizedUsage,
+  previous: CodexNormalizedUsage | null,
+) {
   return {
-    input_tokens: Math.max(current.input_tokens - (previous?.input_tokens ?? 0), 0),
-    cached_input_tokens: Math.max(current.cached_input_tokens - (previous?.cached_input_tokens ?? 0), 0),
-    output_tokens: Math.max(current.output_tokens - (previous?.output_tokens ?? 0), 0),
-    reasoning_output_tokens: Math.max(
-      current.reasoning_output_tokens - (previous?.reasoning_output_tokens ?? 0),
+    input_tokens: Math.max(
+      current.input_tokens - (previous?.input_tokens ?? 0),
       0,
     ),
-    total_tokens: Math.max(current.total_tokens - (previous?.total_tokens ?? 0), 0),
+    cached_input_tokens: Math.max(
+      current.cached_input_tokens - (previous?.cached_input_tokens ?? 0),
+      0,
+    ),
+    output_tokens: Math.max(
+      current.output_tokens - (previous?.output_tokens ?? 0),
+      0,
+    ),
+    reasoning_output_tokens: Math.max(
+      current.reasoning_output_tokens -
+        (previous?.reasoning_output_tokens ?? 0),
+      0,
+    ),
+    total_tokens: Math.max(
+      current.total_tokens - (previous?.total_tokens ?? 0),
+      0,
+    ),
   };
 }
 
@@ -91,14 +108,17 @@ function asNonEmptyString(value?: string) {
 }
 
 function extractCodexModel(payload?: CodexEventPayload) {
-  const directModel = asNonEmptyString(payload?.model) ?? asNonEmptyString(payload?.model_name);
+  const directModel =
+    asNonEmptyString(payload?.model) ?? asNonEmptyString(payload?.model_name);
 
   if (directModel) {
     return directModel;
   }
 
   if (payload?.info) {
-    const infoModel = asNonEmptyString(payload.info.model) ?? asNonEmptyString(payload.info.model_name);
+    const infoModel =
+      asNonEmptyString(payload.info.model) ??
+      asNonEmptyString(payload.info.model_name);
 
     if (infoModel) {
       return infoModel;
@@ -142,10 +162,16 @@ async function parseCodexFiles() {
   return Promise.all(files.map((file) => parseCodexFile(file)));
 }
 
-export async function loadCodexRows(start: Date, end: Date): Promise<UsageSummary> {
+export async function loadCodexRows(
+  start: Date,
+  end: Date,
+): Promise<UsageSummary> {
   const sessions = await parseCodexFiles();
 
-  const totals = new Map<string, { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }>();
+  const totals = new Map<
+    string,
+    { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }
+  >();
   const recentStart = getRecentWindowStart(end, 30);
   const modelTotals = new Map<string, ModelTokenTotals>();
   const recentModelTotals = new Map<string, ModelTokenTotals>();
@@ -203,7 +229,9 @@ export async function loadCodexRows(start: Date, end: Date): Promise<UsageSummar
       }
 
       const modelName = extractedModel ?? currentModel;
-      const normalizedModelName = modelName ? normalizeModelName(modelName) : undefined;
+      const normalizedModelName = modelName
+        ? normalizeModelName(modelName)
+        : undefined;
 
       addDailyTokenTotals(totals, date, usage, normalizedModelName);
 

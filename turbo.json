@@ -1,0 +1,38 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "env": [
+        "CI",
+        "NODE_ENV",
+        "CLAUDE_CONFIG_DIR",
+        "CODEX_HOME",
+        "OPENCODE_DATA_DIR",
+        "XDG_CONFIG_HOME"
+      ],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "env": [
+        "NODE_ENV",
+        "CLAUDE_CONFIG_DIR",
+        "CODEX_HOME",
+        "OPENCODE_DATA_DIR",
+        "XDG_CONFIG_HOME"
+      ]
+    },
+    "start": {
+      "cache": false
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    }
+  }
+}

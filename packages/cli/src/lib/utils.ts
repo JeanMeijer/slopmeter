@@ -24,7 +24,10 @@ export interface ModelTokenTotals {
   total: number;
 }
 
-type TokenTotals = { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> };
+type TokenTotals = {
+  tokens: DailyTokenTotals;
+  models: Map<string, ModelTokenTotals>;
+};
 
 export function addDailyTokenTotals(
   totals: Map<string, TokenTotals>,
@@ -64,9 +67,7 @@ export function addDailyTokenTotals(
   }
 }
 
-export function totalsToRows(
-  totals: Map<string, TokenTotals>,
-): DailyUsage[] {
+export function totalsToRows(totals: Map<string, TokenTotals>): DailyUsage[] {
   return [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, { tokens, models }]) => ({
@@ -98,7 +99,10 @@ export async function listFilesRecursive(rootDir: string, extension: string) {
 
     let entries;
     try {
-      entries = await readdir(currentDir, { withFileTypes: true, encoding: "utf8" });
+      entries = await readdir(currentDir, {
+        withFileTypes: true,
+        encoding: "utf8",
+      });
     } catch {
       continue;
     }
@@ -131,7 +135,9 @@ export function normalizeModelName(modelName: string) {
   return modelName.replace(/-\d{8}$/, "");
 }
 
-export function getTopModel(modelTotals: Map<string, ModelTokenTotals>): ModelUsage | undefined {
+export function getTopModel(
+  modelTotals: Map<string, ModelTokenTotals>,
+): ModelUsage | undefined {
   let bestModel: string | undefined;
   let bestTotals: ModelTokenTotals | undefined;
 

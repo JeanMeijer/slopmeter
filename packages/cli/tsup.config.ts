@@ -5,7 +5,7 @@ export default defineConfig({
   format: ["esm"],
   target: "node22",
   platform: "node",
-  noExternal: ["ccusage", "svg-builder"],
+  noExternal: ["svg-builder"],
   splitting: false,
   sourcemap: true,
   clean: true,

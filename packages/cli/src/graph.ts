@@ -93,7 +93,8 @@ export const heatmapThemes: Record<ProviderId, HeatmapTheme> = {
 
 const daysOfWeekMonday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const numberFormatter = new Intl.NumberFormat("en-US");
-const fontFamily = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+const fontFamily =
+  "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
 function formatTokenTotal(value: number) {
   const units = [
@@ -127,7 +128,10 @@ function truncateText(value: string, maxLength: number) {
 }
 
 function escapeXml(value: string) {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function caption(value: string) {
@@ -176,7 +180,9 @@ function getMonthLabel(week: (string | null)[]) {
     return null;
   }
 
-  return new Date(`${lastDay}T00:00:00`).toLocaleString("en-US", { month: "short" });
+  return new Date(`${lastDay}T00:00:00`).toLocaleString("en-US", {
+    month: "short",
+  });
 }
 
 function defaultColourMap(value: number, max: number, colorCount: number) {
@@ -279,7 +285,17 @@ function computeStreaks(allDays: string[], valueByDate: Map<string, number>) {
 
 function drawHeatmapSection(
   svg: SVGBuilderInstance,
-  { x, y, allDays, grid, layout, daily, insights, title, colors }: DrawHeatmapSectionOptions,
+  {
+    x,
+    y,
+    allDays,
+    grid,
+    layout,
+    daily,
+    insights,
+    title,
+    colors,
+  }: DrawHeatmapSectionOptions,
 ) {
   const valueByDate = new Map<string, number>();
   for (const row of daily) {
@@ -390,7 +406,11 @@ function drawHeatmapSection(
   );
 
   for (let i = 0; i < 7; i += 1) {
-    const dayY = y + layout.gridTop + i * (layout.cellSize + layout.gap) + layout.cellSize / 2;
+    const dayY =
+      y +
+      layout.gridTop +
+      i * (layout.cellSize + layout.gap) +
+      layout.cellSize / 2;
 
     const dayLabel = i === 0 || i === 6 ? daysOfWeekMonday[i] : "";
 
@@ -412,7 +432,8 @@ function drawHeatmapSection(
     const monthLabel = grid.monthLabels[weekIndex];
 
     if (monthLabel) {
-      const monthX = x + layout.leftLabelWidth + weekIndex * (layout.cellSize + layout.gap);
+      const monthX =
+        x + layout.leftLabelWidth + weekIndex * (layout.cellSize + layout.gap);
       svg = svg.text(
         {
           x: monthX,
@@ -437,8 +458,10 @@ function drawHeatmapSection(
       const colorIndex = defaultColourMap(value, maxValue, colors.length);
       const fill = colors[colorIndex];
 
-      const dayX = x + layout.leftLabelWidth + weekIndex * (layout.cellSize + layout.gap);
-      const dayY = y + layout.gridTop + dayIndex * (layout.cellSize + layout.gap);
+      const dayX =
+        x + layout.leftLabelWidth + weekIndex * (layout.cellSize + layout.gap);
+      const dayY =
+        y + layout.gridTop + dayIndex * (layout.cellSize + layout.gap);
 
       svg = svg.rect({
         x: dayX,
@@ -503,7 +526,10 @@ function drawHeatmapSection(
   }
 
   if (insights?.recentMostUsedModel) {
-    leftRows.push({ caption: "Recent use (last 30 days)", data: insights.recentMostUsedModel });
+    leftRows.push({
+      caption: "Recent use (last 30 days)",
+      data: insights.recentMostUsedModel,
+    });
   }
 
   for (const [index, row] of leftRows.entries()) {
@@ -603,7 +629,9 @@ export function renderUsageHeatmapsSvg({
 
   const width = outerPadding * 2 + layout.width;
   const height =
-    outerPadding * 2 + sections.length * layout.height + Math.max(sections.length - 1, 0) * sectionGap;
+    outerPadding * 2 +
+    sections.length * layout.height +
+    Math.max(sections.length - 1, 0) * sectionGap;
 
   let svg = svgBuilder
     .create()

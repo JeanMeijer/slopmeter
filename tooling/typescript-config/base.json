@@ -1,7 +1,7 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
@@ -11,6 +11,5 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true
-  },
-  "include": ["src/**/*.ts", "tsup.config.ts"]
+  }
 }

@@ -53,7 +53,8 @@ function getClaudeConfigPaths() {
       .map((path) => resolve(path));
   }
 
-  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  const xdgConfigHome =
+    process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
 
   return [join(xdgConfigHome, "claude"), join(homedir(), ".claude")];
 }
@@ -121,7 +122,9 @@ async function parseClaudeFile(filePath: string) {
 async function parseClaudeFiles() {
   const projectDirs = getClaudeProjectDirs();
   const files = (
-    await Promise.all(projectDirs.map((projectDir) => listFilesRecursive(projectDir, ".jsonl")))
+    await Promise.all(
+      projectDirs.map((projectDir) => listFilesRecursive(projectDir, ".jsonl")),
+    )
   ).flat();
 
   return Promise.all(files.map((file) => parseClaudeFile(file)));
@@ -135,7 +138,11 @@ function createUniqueHash(messageId?: string, requestId?: string) {
   return `${messageId}:${requestId}`;
 }
 
-function addModelTotals(modelTotals: Map<string, ModelTokenTotals>, modelName: string, tokens: DailyTokenTotals) {
+function addModelTotals(
+  modelTotals: Map<string, ModelTokenTotals>,
+  modelName: string,
+  tokens: DailyTokenTotals,
+) {
   const existing = modelTotals.get(modelName);
   if (existing) {
     existing.input += tokens.input;
@@ -151,11 +158,13 @@ function addModelTotals(modelTotals: Map<string, ModelTokenTotals>, modelName: s
 export async function loadClaudeRows(
   startDate: Date,
   endDate: Date,
-  _timezone: string,
 ): Promise<UsageSummary> {
   const sessions = await parseClaudeFiles();
 
-  const totals = new Map<string, { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }>();
+  const totals = new Map<
+    string,
+    { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }
+  >();
   const modelTotals = new Map<string, ModelTokenTotals>();
   const recentModelTotals = new Map<string, ModelTokenTotals>();
   const recentStart = getRecentWindowStart(endDate, 30);
@@ -182,8 +191,13 @@ export async function loadClaudeRows(
         continue;
       }
 
-      const normalizedModelName = entry.model ? normalizeModelName(entry.model) : undefined;
-      const modelName = normalizedModelName && normalizedModelName !== "<synthetic>" ? normalizedModelName : undefined;
+      const normalizedModelName = entry.model
+        ? normalizeModelName(entry.model)
+        : undefined;
+      const modelName =
+        normalizedModelName && normalizedModelName !== "<synthetic>"
+          ? normalizedModelName
+          : undefined;
 
       addDailyTokenTotals(totals, timestamp, tokenTotals, modelName);
 

@@ -64,9 +64,15 @@ async function parseOpenCodeFiles() {
   return Promise.all(files.map((file) => parseOpenCodeFile(file)));
 }
 
-export async function loadOpenCodeRows(start: Date, end: Date): Promise<UsageSummary> {
+export async function loadOpenCodeRows(
+  start: Date,
+  end: Date,
+): Promise<UsageSummary> {
   const messages = await parseOpenCodeFiles();
-  const totals = new Map<string, { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }>();
+  const totals = new Map<
+    string,
+    { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }
+  >();
   const dedupe = new Set<string>();
   const recentStart = getRecentWindowStart(end, 30);
   const modelTotals = new Map<string, ModelTokenTotals>();
