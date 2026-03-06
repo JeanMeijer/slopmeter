@@ -3,14 +3,15 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { UsageSummary } from "../interfaces";
 import {
+  type DailyTotalsByDate,
   type DailyTokenTotals,
   type ModelTokenTotals,
   addDailyTokenTotals,
-  getProviderInsights,
+  addModelTokenTotals,
+  createUsageSummary,
   getRecentWindowStart,
   listFilesRecursive,
   normalizeModelName,
-  totalsToRows,
 } from "./utils";
 
 interface OpenCodeTokenCache {
@@ -69,10 +70,7 @@ export async function loadOpenCodeRows(
   end: Date,
 ): Promise<UsageSummary> {
   const messages = await parseOpenCodeFiles();
-  const totals = new Map<
-    string,
-    { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }
-  >();
+  const totals: DailyTotalsByDate = new Map();
   const dedupe = new Set<string>();
   const recentStart = getRecentWindowStart(end, 30);
   const modelTotals = new Map<string, ModelTokenTotals>();
@@ -100,39 +98,18 @@ export async function loadOpenCodeRows(
     const modelName = normalizeModelName(message.modelID);
 
     addDailyTokenTotals(totals, date, tokenTotals, modelName);
-
-    const existing = modelTotals.get(modelName);
-
-    if (existing) {
-      existing.input += tokenTotals.input;
-      existing.output += tokenTotals.output;
-      existing.cache.input += tokenTotals.cache.input;
-      existing.cache.output += tokenTotals.cache.output;
-      existing.total += tokenTotals.total;
-    } else {
-      modelTotals.set(modelName, { ...tokenTotals });
-    }
+    addModelTokenTotals(modelTotals, modelName, tokenTotals);
 
     if (date >= recentStart) {
-      const recentExisting = recentModelTotals.get(modelName);
-
-      if (recentExisting) {
-        recentExisting.input += tokenTotals.input;
-        recentExisting.output += tokenTotals.output;
-        recentExisting.cache.input += tokenTotals.cache.input;
-        recentExisting.cache.output += tokenTotals.cache.output;
-        recentExisting.total += tokenTotals.total;
-      } else {
-        recentModelTotals.set(modelName, { ...tokenTotals });
-      }
+      addModelTokenTotals(recentModelTotals, modelName, tokenTotals);
     }
   }
 
-  const daily = totalsToRows(totals);
-
-  return {
-    provider: "opencode",
-    daily,
-    insights: getProviderInsights(modelTotals, recentModelTotals, daily, end),
-  };
+  return createUsageSummary(
+    "opencode",
+    totals,
+    modelTotals,
+    recentModelTotals,
+    end,
+  );
 }

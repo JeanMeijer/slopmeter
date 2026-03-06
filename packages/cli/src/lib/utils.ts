@@ -1,6 +1,6 @@
-import { readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { DailyUsage, Insights, ModelUsage } from "../interfaces";
+import type { DailyUsage, Insights, ModelUsage, UsageSummary } from "../interfaces";
 
 export function formatLocalDate(date: Date) {
   const y = date.getFullYear();
@@ -29,10 +29,50 @@ interface TokenTotals {
   models: Map<string, ModelTokenTotals>;
 }
 
+export type DailyTotalsByDate = Map<string, TokenTotals>;
+
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
+function cloneTokenTotals(
+  totals: DailyTokenTotals | ModelTokenTotals,
+): ModelTokenTotals {
+  return {
+    input: totals.input,
+    output: totals.output,
+    cache: { input: totals.cache.input, output: totals.cache.output },
+    total: totals.total,
+  };
+}
+
+function mergeTokenTotals(
+  target: DailyTokenTotals | ModelTokenTotals,
+  source: DailyTokenTotals | ModelTokenTotals,
+) {
+  target.input += source.input;
+  target.output += source.output;
+  target.cache.input += source.cache.input;
+  target.cache.output += source.cache.output;
+  target.total += source.total;
+}
+
+export function addModelTokenTotals(
+  modelTotals: Map<string, ModelTokenTotals>,
+  modelName: string,
+  tokenTotals: DailyTokenTotals | ModelTokenTotals,
+) {
+  const existing = modelTotals.get(modelName);
+
+  if (!existing) {
+    modelTotals.set(modelName, cloneTokenTotals(tokenTotals));
+
+    return;
+  }
+
+  mergeTokenTotals(existing, tokenTotals);
+}
+
 export function addDailyTokenTotals(
-  totals: Map<string, TokenTotals>,
+  totals: DailyTotalsByDate,
   date: Date,
   tokenTotals: DailyTokenTotals,
   modelName?: string,
@@ -44,35 +84,21 @@ export function addDailyTokenTotals(
     const models = new Map<string, ModelTokenTotals>();
 
     if (modelName) {
-      models.set(modelName, { ...tokenTotals });
+      models.set(modelName, cloneTokenTotals(tokenTotals));
     }
-    totals.set(key, { tokens: { ...tokenTotals }, models });
+    totals.set(key, { tokens: cloneTokenTotals(tokenTotals), models });
 
     return;
   }
 
-  existing.tokens.input += tokenTotals.input;
-  existing.tokens.output += tokenTotals.output;
-  existing.tokens.cache.input += tokenTotals.cache.input;
-  existing.tokens.cache.output += tokenTotals.cache.output;
-  existing.tokens.total += tokenTotals.total;
+  mergeTokenTotals(existing.tokens, tokenTotals);
 
   if (modelName) {
-    const existingModel = existing.models.get(modelName);
-
-    if (existingModel) {
-      existingModel.input += tokenTotals.input;
-      existingModel.output += tokenTotals.output;
-      existingModel.cache.input += tokenTotals.cache.input;
-      existingModel.cache.output += tokenTotals.cache.output;
-      existingModel.total += tokenTotals.total;
-    } else {
-      existing.models.set(modelName, { ...tokenTotals });
-    }
+    addModelTokenTotals(existing.models, modelName, tokenTotals);
   }
 }
 
-export function totalsToRows(totals: Map<string, TokenTotals>): DailyUsage[] {
+export function totalsToRows(totals: DailyTotalsByDate): DailyUsage[] {
   return [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, { tokens, models }]) => ({
@@ -128,6 +154,15 @@ export async function listFilesRecursive(rootDir: string, extension: string) {
   }
 
   return files;
+}
+
+export async function readJsonLines<T>(filePath: string): Promise<T[]> {
+  const content = await readFile(filePath, "utf8");
+
+  return content
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line.trim()) as T);
 }
 
 export function getRecentWindowStart(endDate: Date, days = 30) {
@@ -254,4 +289,24 @@ export function getProviderInsights(
       current: computeCurrentStreak(daily, end),
     },
   };
+}
+
+export function createUsageSummary(
+  provider: UsageSummary["provider"],
+  totals: DailyTotalsByDate,
+  modelTotals: Map<string, ModelTokenTotals>,
+  recentModelTotals: Map<string, ModelTokenTotals>,
+  end: Date,
+): UsageSummary {
+  const daily = totalsToRows(totals);
+
+  return {
+    provider,
+    daily,
+    insights: getProviderInsights(modelTotals, recentModelTotals, daily, end),
+  };
+}
+
+export function hasUsage(summary: UsageSummary) {
+  return summary.daily.some((row) => row.total > 0);
 }

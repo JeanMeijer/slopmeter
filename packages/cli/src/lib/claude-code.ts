@@ -1,17 +1,18 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { UsageSummary } from "../interfaces";
 import {
+  type DailyTotalsByDate,
   type DailyTokenTotals,
   type ModelTokenTotals,
   addDailyTokenTotals,
-  getProviderInsights,
+  addModelTokenTotals,
+  createUsageSummary,
   getRecentWindowStart,
   listFilesRecursive,
   normalizeModelName,
-  totalsToRows,
+  readJsonLines,
 } from "./utils";
 
 const CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR";
@@ -104,13 +105,11 @@ function createClaudeTokenTotals(usage: ClaudeUsagePayload): DailyTokenTotals {
 }
 
 async function parseClaudeFile(filePath: string) {
-  const content = await readFile(filePath, "utf8");
-
   const entries: ClaudeLogEntry[] = [];
-  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== "");
+  const lines = await readJsonLines<ClaudeRawLogEntry>(filePath);
 
   for (const line of lines) {
-    const parsed = parseClaudeLogEntry(JSON.parse(line) as ClaudeRawLogEntry);
+    const parsed = parseClaudeLogEntry(line);
 
     if (parsed) {
       entries.push(parsed);
@@ -139,34 +138,13 @@ function createUniqueHash(messageId?: string, requestId?: string) {
   return `${messageId}:${requestId}`;
 }
 
-function addModelTotals(
-  modelTotals: Map<string, ModelTokenTotals>,
-  modelName: string,
-  tokens: DailyTokenTotals,
-) {
-  const existing = modelTotals.get(modelName);
-
-  if (existing) {
-    existing.input += tokens.input;
-    existing.output += tokens.output;
-    existing.cache.input += tokens.cache.input;
-    existing.cache.output += tokens.cache.output;
-    existing.total += tokens.total;
-  } else {
-    modelTotals.set(modelName, { ...tokens });
-  }
-}
-
 export async function loadClaudeRows(
   startDate: Date,
   endDate: Date,
 ): Promise<UsageSummary> {
   const sessions = await parseClaudeFiles();
 
-  const totals = new Map<
-    string,
-    { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }
-  >();
+  const totals: DailyTotalsByDate = new Map();
   const modelTotals = new Map<string, ModelTokenTotals>();
   const recentModelTotals = new Map<string, ModelTokenTotals>();
   const recentStart = getRecentWindowStart(endDate, 30);
@@ -196,12 +174,9 @@ export async function loadClaudeRows(
         continue;
       }
 
-      const normalizedModelName = entry.model
-        ? normalizeModelName(entry.model)
-        : undefined;
       const modelName =
-        normalizedModelName && normalizedModelName !== "<synthetic>"
-          ? normalizedModelName
+        entry.model && entry.model !== "<synthetic>"
+          ? normalizeModelName(entry.model)
           : undefined;
 
       addDailyTokenTotals(totals, timestamp, tokenTotals, modelName);
@@ -210,19 +185,19 @@ export async function loadClaudeRows(
         continue;
       }
 
-      addModelTotals(modelTotals, modelName, tokenTotals);
+      addModelTokenTotals(modelTotals, modelName, tokenTotals);
 
       if (timestamp >= recentStart) {
-        addModelTotals(recentModelTotals, modelName, tokenTotals);
+        addModelTokenTotals(recentModelTotals, modelName, tokenTotals);
       }
     }
   }
 
-  const daily = totalsToRows(totals);
-
-  return {
-    provider: "claude",
-    daily,
-    insights: getProviderInsights(modelTotals, recentModelTotals, daily, endDate),
-  };
+  return createUsageSummary(
+    "claude",
+    totals,
+    modelTotals,
+    recentModelTotals,
+    endDate,
+  );
 }

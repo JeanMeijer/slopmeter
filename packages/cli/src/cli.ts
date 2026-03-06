@@ -10,6 +10,7 @@ import type {
   JsonUsageSummary,
   UsageSummary,
 } from "./interfaces";
+import type { ProviderId } from "./providers";
 import { formatLocalDate } from "./lib/utils";
 import { aggregateUsage, providerIds, providerStatusLabel } from "./providers";
 
@@ -125,6 +126,80 @@ function toJsonUsageSummary(summary: UsageSummary): JsonUsageSummary {
   };
 }
 
+function getDateWindow() {
+  const end = new Date();
+
+  end.setHours(0, 0, 0, 0);
+
+  const start = new Date(end);
+
+  start.setFullYear(start.getFullYear() - 1);
+
+  return { start, end };
+}
+
+function printProviderAvailability(
+  rowsByProvider: Record<ProviderId, UsageSummary | null>,
+) {
+  for (const provider of providerIds) {
+    const found = rowsByProvider[provider] ? "found" : "not found";
+
+    process.stdout.write(`${providerStatusLabel[provider]} ${found}\n`);
+  }
+}
+
+function getRequestedProviders(values: CliArgValues) {
+  return providerIds.filter((id) => values[id]);
+}
+
+function selectProvidersToRender(
+  rowsByProvider: Record<ProviderId, UsageSummary | null>,
+  requested: ProviderId[],
+) {
+  const providersToRender =
+    requested.length > 0
+      ? requested.filter((provider) => rowsByProvider[provider])
+      : providerIds.filter((provider) => rowsByProvider[provider]);
+
+  if (requested.length > 0 && providersToRender.length < requested.length) {
+    const missing = requested.filter((provider) => !rowsByProvider[provider]);
+
+    throw new Error(
+      `Requested provider data not found: ${missing.map((provider) => providerStatusLabel[provider]).join(", ")}`,
+    );
+  }
+
+  if (providersToRender.length === 0) {
+    throw new Error(
+      "No usage data found for Claude code, Codex, or Open code.",
+    );
+  }
+
+  return providersToRender.map((provider) => rowsByProvider[provider]!);
+}
+
+function printRunSummary(
+  outputPath: string,
+  format: OutputFormat,
+  startDate: Date,
+  endDate: Date,
+  rendered: ProviderId[],
+) {
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        output: outputPath,
+        format,
+        startDate: formatLocalDate(startDate),
+        endDate: formatLocalDate(endDate),
+        rendered,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
 async function main() {
   let spinner: Ora | undefined;
 
@@ -156,49 +231,17 @@ async function main() {
       spinner: "dots",
     }).start();
 
-    const end = new Date();
-
-    end.setHours(0, 0, 0, 0);
-
-    const start = new Date(end);
-
-    start.setFullYear(start.getFullYear() - 1);
+    const { start, end } = getDateWindow();
 
     const format = inferFormat(values.format, values.output);
-
     const rowsByProvider = await aggregateUsage({ start, end });
 
     spinner.stop();
+    printProviderAvailability(rowsByProvider);
 
-    for (const provider of providerIds) {
-      const found = rowsByProvider[provider] ? "found" : "not found";
-
-      process.stdout.write(`${providerStatusLabel[provider]} ${found}\n`);
-    }
-
-    const requested = providerIds.filter(
-      (id) => values[id as keyof CliArgValues],
-    );
-    const explicit = requested.length > 0;
-    const candidates = explicit ? requested : providerIds;
-    const providersToRender = candidates.filter((p) => rowsByProvider[p]);
-
-    if (explicit && providersToRender.length < requested.length) {
-      const missing = requested.filter((p) => !rowsByProvider[p]);
-
-      throw new Error(
-        `Requested provider data not found: ${missing.map((p) => providerStatusLabel[p]).join(", ")}`,
-      );
-    }
-
-    if (providersToRender.length === 0) {
-      throw new Error(
-        "No usage data found for Claude code, Codex, or Open code.",
-      );
-    }
-
-    const exportProviders = providersToRender.map(
-      (provider) => rowsByProvider[provider]!,
+    const exportProviders = selectProvidersToRender(
+      rowsByProvider,
+      getRequestedProviders(values),
     );
 
     const outputPath = resolve(
@@ -241,18 +284,12 @@ async function main() {
 
     spinner.succeed("Analysis complete");
 
-    process.stdout.write(
-      `${JSON.stringify(
-        {
-          output: outputPath,
-          format,
-          startDate: formatLocalDate(start),
-          endDate: formatLocalDate(end),
-          rendered: providersToRender,
-        },
-        null,
-        2,
-      )}\n`,
+    printRunSummary(
+      outputPath,
+      format,
+      start,
+      end,
+      exportProviders.map(({ provider }) => provider),
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

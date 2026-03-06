@@ -7,6 +7,7 @@ import {
   type ProviderId,
 } from "./lib/interfaces";
 import { loadOpenCodeRows } from "./lib/open-code";
+import { hasUsage } from "./lib/utils";
 
 export { providerIds, providerStatusLabel, type ProviderId };
 
@@ -26,8 +27,8 @@ export async function aggregateUsage({
   ]);
 
   return {
-    claude: claude.daily.some((row) => row.total > 0) ? claude : null,
-    codex: codex.daily.some((row) => row.total > 0) ? codex : null,
-    opencode: opencode.daily.some((row) => row.total > 0) ? opencode : null,
+    claude: hasUsage(claude) ? claude : null,
+    codex: hasUsage(codex) ? codex : null,
+    opencode: hasUsage(opencode) ? opencode : null,
   };
 }

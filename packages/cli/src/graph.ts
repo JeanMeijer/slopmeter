@@ -264,16 +264,21 @@ function drawHeatmapSection(
   }: DrawHeatmapSectionOptions,
 ) {
   const valueByDate = new Map<string, number>();
+  const rightEdge = x + layout.width - 8;
+  const leftColumnX = x + 8;
+  let maxValue = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokens = 0;
 
   for (const row of daily) {
     valueByDate.set(formatLocalDate(row.date), row.total);
+    maxValue = Math.max(maxValue, row.total);
+    totalInputTokens += row.input;
+    totalOutputTokens += row.output;
+    totalTokens += row.total;
   }
-  const maxValue = Math.max(...daily.map((row) => row.total), 0);
-  const rightEdge = x + layout.width - 8;
-  const leftColumnX = x + 8;
-  const totalInputTokens = daily.reduce((sum, row) => sum + row.input, 0);
-  const totalOutputTokens = daily.reduce((sum, row) => sum + row.output, 0);
-  const totalTokens = daily.reduce((sum, row) => sum + row.total, 0);
+
   const topMetricGap = 120;
   const headerInputX = rightEdge - topMetricGap * 2;
   const headerOutputX = rightEdge - topMetricGap;

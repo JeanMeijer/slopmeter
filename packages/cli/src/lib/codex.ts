@@ -1,16 +1,17 @@
-import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { UsageSummary } from "../interfaces";
 import {
+  type DailyTotalsByDate,
   type DailyTokenTotals,
   type ModelTokenTotals,
   addDailyTokenTotals,
-  getProviderInsights,
+  addModelTokenTotals,
+  createUsageSummary,
   getRecentWindowStart,
   listFilesRecursive,
   normalizeModelName,
-  totalsToRows,
+  readJsonLines,
 } from "./utils";
 
 interface CodexRawUsage {
@@ -142,13 +143,7 @@ function extractCodexModel(payload?: CodexEventPayload) {
 }
 
 async function parseCodexFile(filePath: string) {
-  const content = await readFile(filePath, "utf8");
-
-  const lines = content.split(/\r?\n/);
-
-  return lines
-    .filter((line) => line.trim() !== "")
-    .map((line) => JSON.parse(line.trim()) as CodexEventEntry);
+  return readJsonLines<CodexEventEntry>(filePath);
 }
 
 async function parseCodexFiles() {
@@ -169,10 +164,7 @@ export async function loadCodexRows(
 ): Promise<UsageSummary> {
   const sessions = await parseCodexFiles();
 
-  const totals = new Map<
-    string,
-    { tokens: DailyTokenTotals; models: Map<string, ModelTokenTotals> }
-  >();
+  const totals: DailyTotalsByDate = new Map();
   const recentStart = getRecentWindowStart(end, 30);
   const modelTotals = new Map<string, ModelTokenTotals>();
   const recentModelTotals = new Map<string, ModelTokenTotals>();
@@ -185,9 +177,7 @@ export async function loadCodexRows(
       const extractedModel = extractCodexModel(entry.payload);
 
       if (entry.type === "turn_context") {
-        if (extractedModel) {
-          currentModel = extractedModel;
-        }
+        currentModel = extractedModel ?? currentModel;
         continue;
       }
 
@@ -237,40 +227,14 @@ export async function loadCodexRows(
       addDailyTokenTotals(totals, date, usage, normalizedModelName);
 
       if (normalizedModelName) {
-        const existing = modelTotals.get(normalizedModelName);
-
-        if (existing) {
-          existing.input += usage.input;
-          existing.output += usage.output;
-          existing.cache.input += usage.cache.input;
-          existing.cache.output += usage.cache.output;
-          existing.total += usage.total;
-        } else {
-          modelTotals.set(normalizedModelName, { ...usage });
-        }
+        addModelTokenTotals(modelTotals, normalizedModelName, usage);
 
         if (date >= recentStart) {
-          const recentExisting = recentModelTotals.get(normalizedModelName);
-
-          if (recentExisting) {
-            recentExisting.input += usage.input;
-            recentExisting.output += usage.output;
-            recentExisting.cache.input += usage.cache.input;
-            recentExisting.cache.output += usage.cache.output;
-            recentExisting.total += usage.total;
-          } else {
-            recentModelTotals.set(normalizedModelName, { ...usage });
-          }
+          addModelTokenTotals(recentModelTotals, normalizedModelName, usage);
         }
       }
     }
   }
 
-  const daily = totalsToRows(totals);
-
-  return {
-    provider: "codex",
-    daily,
-    insights: getProviderInsights(modelTotals, recentModelTotals, daily, end),
-  };
+  return createUsageSummary("codex", totals, modelTotals, recentModelTotals, end);
 }
