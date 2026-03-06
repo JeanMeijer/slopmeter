@@ -263,7 +263,7 @@ function drawHeatmapSection(
 ) {
   const valueByDate = new Map<string, number>();
   for (const row of daily) {
-    valueByDate.set(row.date, row.total);
+    valueByDate.set(formatLocalDate(row.date), row.total);
   }
   const maxValue = Math.max(...daily.map((row) => row.total), 0);
   const rightEdge = x + layout.width - 8;

@@ -43,5 +43,23 @@ export interface JsonExportPayload {
   version: string;
   start: string;
   end: string;
-  providers: UsageSummary[];
+  providers: JsonUsageSummary[];
+}
+
+export interface JsonUsageSummary {
+  provider: "claude" | "codex" | "opencode";
+  daily: JsonDailyUsage[];
+  insights?: Insights;
+}
+
+export interface JsonDailyUsage {
+  date: string;
+  input: number;
+  output: number;
+  cache: {
+    input: number;
+    output: number;
+  };
+  total: number;
+  breakdown: ModelUsage[];
 }

@@ -29,6 +29,8 @@ type TokenTotals = {
   models: Map<string, ModelTokenTotals>;
 };
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
 export function addDailyTokenTotals(
   totals: Map<string, TokenTotals>,
   date: Date,
@@ -71,7 +73,7 @@ export function totalsToRows(totals: Map<string, TokenTotals>): DailyUsage[] {
   return [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, { tokens, models }]) => ({
-      date,
+      date: new Date(`${date}T00:00:00`),
       input: tokens.input,
       output: tokens.output,
       cache: { input: tokens.cache.input, output: tokens.cache.output },
@@ -163,12 +165,19 @@ export function getTopModel(
   };
 }
 
-function isConsecutiveDay(prevDate: string, currDate: string): boolean {
-  const prev = new Date(`${prevDate}T00:00:00`);
-  const curr = new Date(`${currDate}T00:00:00`);
+function startOfDay(date: Date) {
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+
+  return day;
+}
+
+function isConsecutiveDay(prevDate: Date, currDate: Date): boolean {
+  const prev = startOfDay(prevDate);
+  const curr = startOfDay(currDate);
   const diff = curr.getTime() - prev.getTime();
 
-  return diff === 24 * 60 * 60 * 1000;
+  return diff === ONE_DAY_MS;
 }
 
 export function computeLongestStreak(daily: DailyUsage[]): number {
@@ -198,14 +207,16 @@ export function computeCurrentStreak(daily: DailyUsage[], end: Date): number {
     return 0;
   }
 
-  const endDateStr = formatLocalDate(end);
+  const endDay = startOfDay(end);
   const lastEntry = daily[daily.length - 1];
+  const lastEntryDay = startOfDay(lastEntry.date);
 
   // If the last active day isn't the end date, check if it's consecutive
-  if (lastEntry.date !== endDateStr) {
-    if (!isConsecutiveDay(lastEntry.date, endDateStr)) {
-      return 0;
-    }
+  if (
+    lastEntryDay.getTime() !== endDay.getTime() &&
+    !isConsecutiveDay(lastEntryDay, endDay)
+  ) {
+    return 0;
   }
 
   let current = 1;

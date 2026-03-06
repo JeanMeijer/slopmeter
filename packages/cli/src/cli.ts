@@ -5,13 +5,13 @@ import ora, { type Ora } from "ora";
 import ow from "ow";
 import sharp from "sharp";
 import { heatmapThemes, renderUsageHeatmapsSvg } from "./graph";
-import type { JsonExportPayload } from "./interfaces";
+import type {
+  JsonExportPayload,
+  JsonUsageSummary,
+  UsageSummary,
+} from "./interfaces";
 import { formatLocalDate } from "./lib/utils";
-import {
-  aggregateUsage,
-  providerIds,
-  providerStatusLabel,
-} from "./providers";
+import { aggregateUsage, providerIds, providerStatusLabel } from "./providers";
 
 type OutputFormat = "png" | "svg" | "json";
 type CliArgValues = {
@@ -109,6 +109,21 @@ function writeOutputJson(outputPath: string, payload: JsonExportPayload) {
   writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
+function toJsonUsageSummary(summary: UsageSummary): JsonUsageSummary {
+  return {
+    provider: summary.provider,
+    insights: summary.insights,
+    daily: summary.daily.map((row) => ({
+      date: formatLocalDate(row.date),
+      input: row.input,
+      output: row.output,
+      cache: row.cache,
+      total: row.total,
+      breakdown: row.breakdown,
+    })),
+  };
+}
+
 async function main() {
   let spinner: Ora | undefined;
 
@@ -178,7 +193,9 @@ async function main() {
       );
     }
 
-    const exportProviders = providersToRender.map((provider) => rowsByProvider[provider]!);
+    const exportProviders = providersToRender.map(
+      (provider) => rowsByProvider[provider]!,
+    );
 
     const outputPath = resolve(
       values.output ?? `./heatmap-last-year.${format}`,
@@ -192,7 +209,9 @@ async function main() {
         version: JSON_EXPORT_VERSION,
         start: formatLocalDate(start),
         end: formatLocalDate(end),
-        providers: exportProviders,
+        providers: exportProviders.map((provider) =>
+          toJsonUsageSummary(provider),
+        ),
       };
 
       spinner.text = "Writing output file...";
