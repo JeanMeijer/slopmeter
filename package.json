@@ -1,5 +1,5 @@
 {
-  "name": "codegraph",
+  "name": "slopmeter",
   "private": true,
   "packageManager": "bun@1.3.3",
   "engines": {

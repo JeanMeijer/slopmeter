@@ -1,6 +1,6 @@
-# codegraph
+# slopmeter
 
-TypeScript CLI that generates usage heatmaps for Claude Code, Codex, and Open Code for the rolling past year (ending today).
+CLI tool that generates usage heatmaps for Claude Code, Codex, and Open Code for the rolling past year (ending today).
 
 ## Monorepo layout
 
@@ -89,21 +89,6 @@ Model names are normalized to remove a trailing date suffix like `-20251101`.
   - `daily` rows with `date`, `input`, `output`, `cache`, `total`
   - `daily[].breakdown` per-model usage for that day, sorted by `tokens.total` (includes `input` and `output`)
   - `insights` (`mostUsedModel`, `recentMostUsedModel`) when available
-
-## Shadcn registry
-
-- Registry source lives in `packages/registry/registry.json`.
-- Build the registry with `bun run --cwd packages/registry registry:build`.
-- Installable item payload is `packages/registry/public/r/codegraph-heatmap.json`.
-- Component source is `packages/registry/registry/codegraph/codegraph-heatmap.tsx`.
-
-```bash
-# from this repo root in a consumer project
-npx shadcn@latest add ./packages/registry/public/r/codegraph-heatmap.json
-```
-
-The component accepts the JSON produced by `slopmeter --format json` and renders provider heatmaps with per-day model tooltips.
-Provider heatmap shades are defined in the registry item via `cssVars.theme`.
 
 ## Provider/data behavior
 

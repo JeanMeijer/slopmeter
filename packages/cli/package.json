@@ -8,14 +8,13 @@
   },
   "license": "MIT",
   "author": "Jean P.D. Meijer",
-  "homepage": "https://github.com/JeanMeijer/codegraph/tree/main/packages/cli",
+  "homepage": "https://github.com/JeanMeijer/slopmeter",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JeanMeijer/codegraph.git",
-    "directory": "packages/cli"
+    "url": "git+https://github.com/JeanMeijer/slopmeter.git"
   },
   "bugs": {
-    "url": "https://github.com/JeanMeijer/codegraph/issues"
+    "url": "https://github.com/JeanMeijer/slopmeter/issues"
   },
   "keywords": [
     "cli",
