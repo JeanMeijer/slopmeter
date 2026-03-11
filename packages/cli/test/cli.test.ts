@@ -573,6 +573,69 @@ test("Codex falls back to last usage when cumulative totals roll back", async (t
   assert.equal(payload.providers[0]?.daily[0]?.total, 142);
 });
 
+test("Codex advances the cumulative baseline across last-usage-only records", async (t) => {
+  const workspace = createTempWorkspace("codex-last-usage-baseline");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const codexHome = join(workspace, "codex");
+  const outputPath = join(workspace, "out.json");
+  const baseTimestamp = new Date();
+
+  baseTimestamp.setUTCHours(0, 0, 0, 0);
+
+  writeJsonlFile(join(codexHome, "sessions", "session.jsonl"), [
+    JSON.stringify({
+      type: "turn_context",
+      timestamp: new Date(baseTimestamp.getTime()).toISOString(),
+      payload: { model: "gpt-5.2" },
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 1_000).toISOString(),
+      input: 100,
+      output: 30,
+      total: 130,
+      totalUsage: { input: 100, output: 30, total: 130 },
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 2_000).toISOString(),
+      input: 7,
+      output: 5,
+      total: 12,
+      totalUsage: undefined,
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 3_000).toISOString(),
+      input: 1,
+      output: 2,
+      total: 3,
+      lastUsage: { input: 1, output: 2, total: 3 },
+      totalUsage: { input: 108, output: 37, total: 145 },
+    }),
+  ]);
+
+  const result = await runCli(
+    ["--codex", "--format", "json", "--output", outputPath],
+    {
+      CODEX_HOME: codexHome,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{ provider: string; daily: Array<{ total: number }> }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["codex"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 145);
+});
+
 test("--pi only loads Pi Coding Agent and ignores oversized irrelevant session records", async (t) => {
   const workspace = createTempWorkspace("pi-only");
 
