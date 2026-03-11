@@ -142,38 +142,36 @@ function extractCodexModel(payload?: CodexEventPayload) {
   return undefined;
 }
 
-async function parseCodexFile(filePath: string) {
+function parseCodexFile(filePath: string) {
   return readJsonLines<CodexEventEntry>(filePath);
 }
 
-async function parseCodexFiles() {
+async function getCodexFiles() {
   const codexHome = process.env.CODEX_HOME?.trim()
     ? resolve(process.env.CODEX_HOME)
     : join(homedir(), ".codex");
 
   const sessionsDir = join(codexHome, "sessions");
 
-  const files = await listFilesRecursive(sessionsDir, ".jsonl");
-
-  return Promise.all(files.map((file) => parseCodexFile(file)));
+  return listFilesRecursive(sessionsDir, ".jsonl");
 }
 
 export async function loadCodexRows(
   start: Date,
   end: Date,
 ): Promise<UsageSummary> {
-  const sessions = await parseCodexFiles();
+  const files = await getCodexFiles();
 
   const totals: DailyTotalsByDate = new Map();
   const recentStart = getRecentWindowStart(end, 30);
   const modelTotals = new Map<string, ModelTokenTotals>();
   const recentModelTotals = new Map<string, ModelTokenTotals>();
 
-  for (const session of sessions) {
+  for (const file of files) {
     let previousTotals: CodexNormalizedUsage | null = null;
     let currentModel: string | undefined;
 
-    for (const entry of session) {
+    for await (const entry of parseCodexFile(file)) {
       const extractedModel = extractCodexModel(entry.payload);
 
       if (entry.type === "turn_context") {

@@ -104,22 +104,17 @@ function createClaudeTokenTotals(usage: ClaudeUsagePayload): DailyTokenTotals {
   };
 }
 
-async function parseClaudeFile(filePath: string) {
-  const entries: ClaudeLogEntry[] = [];
-  const lines = await readJsonLines<ClaudeRawLogEntry>(filePath);
-
-  for (const line of lines) {
+async function* parseClaudeFile(filePath: string) {
+  for await (const line of readJsonLines<ClaudeRawLogEntry>(filePath)) {
     const parsed = parseClaudeLogEntry(line);
 
     if (parsed) {
-      entries.push(parsed);
+      yield parsed;
     }
   }
-
-  return entries;
 }
 
-async function parseClaudeFiles() {
+async function getClaudeFiles() {
   const projectDirs = getClaudeProjectDirs();
   const files = (
     await Promise.all(
@@ -127,7 +122,7 @@ async function parseClaudeFiles() {
     )
   ).flat();
 
-  return Promise.all(files.map((file) => parseClaudeFile(file)));
+  return files;
 }
 
 function createUniqueHash(messageId?: string, requestId?: string) {
@@ -142,7 +137,7 @@ export async function loadClaudeRows(
   startDate: Date,
   endDate: Date,
 ): Promise<UsageSummary> {
-  const sessions = await parseClaudeFiles();
+  const files = await getClaudeFiles();
 
   const totals: DailyTotalsByDate = new Map();
   const modelTotals = new Map<string, ModelTokenTotals>();
@@ -150,8 +145,8 @@ export async function loadClaudeRows(
   const recentStart = getRecentWindowStart(endDate, 30);
   const processedHashes = new Set<string>();
 
-  for (const session of sessions) {
-    for (const entry of session) {
+  for (const file of files) {
+    for await (const entry of parseClaudeFile(file)) {
       const uniqueHash = createUniqueHash(entry.messageId, entry.requestId);
 
       if (uniqueHash && processedHashes.has(uniqueHash)) {

@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, open } from "node:fs/promises";
 import { join } from "node:path";
 import type { DailyUsage, Insights, ModelUsage, UsageSummary } from "../interfaces";
 
@@ -156,13 +156,23 @@ export async function listFilesRecursive(rootDir: string, extension: string) {
   return files;
 }
 
-export async function readJsonLines<T>(filePath: string): Promise<T[]> {
-  const content = await readFile(filePath, "utf8");
+export async function* readJsonLines<T>(filePath: string): AsyncGenerator<T> {
+  const file = await open(filePath, "r");
 
-  return content
-    .split(/\r?\n/)
-    .filter((line) => line.trim() !== "")
-    .map((line) => JSON.parse(line.trim()) as T);
+  try {
+    for await (const line of file.readLines()) {
+      const trimmed = line.trim();
+      if (trimmed !== "") {
+        try {
+          yield JSON.parse(trimmed) as T;
+        } catch (e) {
+          // Ignore parse errors from corrupted lines
+        }
+      }
+    }
+  } finally {
+    await file.close();
+  }
 }
 
 export function getRecentWindowStart(endDate: Date, days = 30) {

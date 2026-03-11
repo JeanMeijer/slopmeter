@@ -50,34 +50,37 @@ function sumOpenCodeTokens(tokens?: OpenCodeTokens): DailyTokenTotals {
 async function parseOpenCodeFile(filePath: string) {
   const content = await readFile(filePath, "utf8");
 
-  return JSON.parse(content) as OpenCodeMessage;
+  try {
+    return JSON.parse(content) as OpenCodeMessage;
+  } catch (e) {
+    return null;
+  }
 }
 
-async function parseOpenCodeFiles() {
+async function getOpenCodeFiles() {
   const baseDir = process.env.OPENCODE_DATA_DIR?.trim()
     ? resolve(process.env.OPENCODE_DATA_DIR)
     : join(homedir(), ".local", "share", "opencode");
 
   const messagesDir = join(baseDir, "storage", "message");
 
-  const files = await listFilesRecursive(messagesDir, ".json");
-
-  return Promise.all(files.map((file) => parseOpenCodeFile(file)));
+  return listFilesRecursive(messagesDir, ".json");
 }
 
 export async function loadOpenCodeRows(
   start: Date,
   end: Date,
 ): Promise<UsageSummary> {
-  const messages = await parseOpenCodeFiles();
+  const files = await getOpenCodeFiles();
   const totals: DailyTotalsByDate = new Map();
   const dedupe = new Set<string>();
   const recentStart = getRecentWindowStart(end, 30);
   const modelTotals = new Map<string, ModelTokenTotals>();
   const recentModelTotals = new Map<string, ModelTokenTotals>();
 
-  for (const message of messages) {
-    if (dedupe.has(message.id)) {
+  for (const file of files) {
+    const message = await parseOpenCodeFile(file);
+    if (!message || dedupe.has(message.id)) {
       continue;
     }
 
