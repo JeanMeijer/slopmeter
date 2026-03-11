@@ -440,7 +440,6 @@ function drawHeatmapSection(
   }
 
   const topMetricGap = 120;
-  const headerLast30DaysX = rightEdge - topMetricGap * 3;
   const headerInputX = rightEdge - topMetricGap * 2;
   const headerOutputX = rightEdge - topMetricGap;
   const totalTokensLabel = formatTokenTotal(totalTokens);
