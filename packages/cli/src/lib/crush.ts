@@ -60,6 +60,8 @@ interface CrushDatabaseUsage {
   recentModelRows: CrushModelUsageRow[];
 }
 
+let cachedHomeCrushDataDirsPromise: Promise<string[]> | undefined;
+
 function getDefaultCrushGlobalDataDir() {
   if (process.platform === "win32") {
     const localAppData =
@@ -113,56 +115,77 @@ async function getTrackedCrushDataDirs() {
     .filter((path): path is string => path !== null);
 }
 
-async function scanHomeForCrushDataDirs(currentDir: string, depth: number) {
-  if (basename(currentDir) === ".crush") {
-    return existsSync(join(currentDir, "crush.db")) ? [currentDir] : [];
-  }
+function isSearchableHomeDir(name: string) {
+  return !CRUSH_HOME_SCAN_SKIP_DIRS.has(name);
+}
 
-  if (depth >= CRUSH_HOME_SCAN_MAX_DEPTH) {
-    return [];
-  }
-
-  let entries: Awaited<ReturnType<typeof readdir>>;
-
-  try {
-    entries = await readdir(currentDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
+async function findNestedCrushDataDirs(rootDir: string) {
   const dataDirs: string[] = [];
+  const queue: Array<{ dir: string; depth: number }> = [
+    { dir: rootDir, depth: 0 },
+  ];
 
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    if (basename(current.dir) === ".crush") {
+      if (existsSync(join(current.dir, "crush.db"))) {
+        dataDirs.push(current.dir);
+      }
       continue;
     }
 
-    if (CRUSH_HOME_SCAN_SKIP_DIRS.has(entry.name)) {
+    if (current.depth >= CRUSH_HOME_SCAN_MAX_DEPTH) {
       continue;
     }
 
-    dataDirs.push(
-      ...(await scanHomeForCrushDataDirs(join(currentDir, entry.name), depth + 1)),
-    );
+    let entries: Awaited<ReturnType<typeof readdir>>;
+
+    try {
+      entries = await readdir(current.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        continue;
+      }
+
+      if (!isSearchableHomeDir(entry.name)) {
+        continue;
+      }
+
+      queue.push({
+        dir: join(current.dir, entry.name),
+        depth: current.depth + 1,
+      });
+    }
   }
 
   return dataDirs;
 }
 
 async function getHomeCrushDataDirs() {
-  return scanHomeForCrushDataDirs(homedir(), 0);
+  if (!cachedHomeCrushDataDirsPromise) {
+    cachedHomeCrushDataDirsPromise = findNestedCrushDataDirs(homedir());
+  }
+
+  return cachedHomeCrushDataDirsPromise;
 }
 
-async function getCrushDatabasePaths() {
-  const seen = new Set<string>();
-  const databasePaths: string[] = [];
-  const dataDirs = [
+async function getExplicitCrushDataDirs() {
+  return [
     resolve(".crush"),
     join(homedir(), ".crush"),
     ...(await getTrackedCrushDataDirs()),
     resolveCrushGlobalDataDir(),
-    ...(await getHomeCrushDataDirs()),
   ];
+}
+
+function collectExistingDatabasePaths(dataDirs: string[]) {
+  const seen = new Set<string>();
+  const databasePaths: string[] = [];
 
   for (const dataDir of dataDirs) {
     const databasePath = join(dataDir, "crush.db");
@@ -174,6 +197,17 @@ async function getCrushDatabasePaths() {
   }
 
   return databasePaths;
+}
+
+async function getCrushDatabasePaths() {
+  const explicitDatabasePaths = collectExistingDatabasePaths(
+    await getExplicitCrushDataDirs(),
+  );
+  const homeScanDatabasePaths = collectExistingDatabasePaths(
+    await getHomeCrushDataDirs(),
+  );
+
+  return [...new Set([...explicitDatabasePaths, ...homeScanDatabasePaths])];
 }
 
 function isSqliteLockedError(error: unknown) {
@@ -254,9 +288,7 @@ function getCrushModelUsageName(row: CrushModelUsageRow) {
   return provider ? `${model} (${provider})` : model;
 }
 
-function getTopCrushModelByMessages(
-  modelRows: CrushModelUsageRow[],
-): ModelUsage | undefined {
+function aggregateCrushMessageCounts(modelRows: CrushModelUsageRow[]) {
   const counts = new Map<string, number>();
 
   for (const row of modelRows) {
@@ -269,6 +301,14 @@ function getTopCrushModelByMessages(
 
     counts.set(name, (counts.get(name) ?? 0) + messageCount);
   }
+
+  return counts;
+}
+
+function getTopCrushModelByMessages(
+  modelRows: CrushModelUsageRow[],
+): ModelUsage | undefined {
+  const counts = aggregateCrushMessageCounts(modelRows);
 
   let bestName: string | undefined;
   let bestCount = 0;
@@ -299,7 +339,10 @@ function getTopCrushModelByMessages(
   };
 }
 
-async function readCrushUsageRows(databasePath: string, recentWindowStart: number) {
+async function readCrushDatabaseUsage(
+  databasePath: string,
+  recentWindowStart: number,
+) {
   return withoutSqliteExperimentalWarning(async () => {
     const { DatabaseSync } = await loadSqliteModule();
     const database = new DatabaseSync(databasePath, { readOnly: true });
@@ -353,14 +396,14 @@ async function readCrushUsageRows(databasePath: string, recentWindowStart: numbe
 
 async function loadCrushUsageRows(databasePath: string, recentWindowStart: number) {
   try {
-    return await readCrushUsageRows(databasePath, recentWindowStart);
+    return await readCrushDatabaseUsage(databasePath, recentWindowStart);
   } catch (error) {
     if (!isSqliteLockedError(error)) {
       throw error;
     }
 
     return withDatabaseSnapshot(databasePath, async (snapshotPath) =>
-      readCrushUsageRows(snapshotPath, recentWindowStart),
+      readCrushDatabaseUsage(snapshotPath, recentWindowStart),
     );
   }
 }
