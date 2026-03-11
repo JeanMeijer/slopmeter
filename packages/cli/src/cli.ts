@@ -133,10 +133,12 @@ function toJsonUsageSummary(summary: UsageSummary): JsonUsageSummary {
 
 function getDateWindow() {
   const start = new Date();
+
   start.setHours(0, 0, 0, 0);
   start.setFullYear(start.getFullYear() - 1);
 
   const end = new Date();
+
   end.setHours(23, 59, 59, 999);
 
   return { start, end };
@@ -144,8 +146,9 @@ function getDateWindow() {
 
 function printProviderAvailability(
   rowsByProvider: Record<ProviderId, UsageSummary | null>,
+  providers: ProviderId[],
 ) {
-  for (const provider of providerIds) {
+  for (const provider of providers) {
     const found = rowsByProvider[provider] ? "found" : "not found";
 
     process.stdout.write(`${providerStatusLabel[provider]} ${found}\n`);
@@ -241,14 +244,21 @@ async function main() {
     const { start, end } = getDateWindow();
     const colorMode: ColorMode = values.dark ? "dark" : "light";
     const format = inferFormat(values.format, values.output);
-    const rowsByProvider = await aggregateUsage({ start, end });
+    const requestedProviders = getRequestedProviders(values);
+    const inspectedProviders =
+      requestedProviders.length > 0 ? requestedProviders : providerIds;
+    const rowsByProvider = await aggregateUsage({
+      start,
+      end,
+      providers: inspectedProviders,
+    });
 
     spinner.stop();
-    printProviderAvailability(rowsByProvider);
+    printProviderAvailability(rowsByProvider, inspectedProviders);
 
     const exportProviders = selectProvidersToRender(
       rowsByProvider,
-      getRequestedProviders(values),
+      requestedProviders,
     );
 
     const outputPath = resolve(

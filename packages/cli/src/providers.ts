@@ -14,21 +14,31 @@ export { providerIds, providerStatusLabel, type ProviderId };
 interface AggregateUsageOptions {
   start: Date;
   end: Date;
+  providers?: ProviderId[];
 }
 
 export async function aggregateUsage({
   start,
   end,
+  providers,
 }: AggregateUsageOptions): Promise<Record<ProviderId, UsageSummary | null>> {
-  const [claude, codex, opencode] = await Promise.all([
-    loadClaudeRows(start, end),
-    loadCodexRows(start, end),
-    loadOpenCodeRows(start, end),
-  ]);
-
-  return {
-    claude: hasUsage(claude) ? claude : null,
-    codex: hasUsage(codex) ? codex : null,
-    opencode: hasUsage(opencode) ? opencode : null,
+  const requestedProviders = providers?.length ? providers : providerIds;
+  const rowsByProvider: Record<ProviderId, UsageSummary | null> = {
+    claude: null,
+    codex: null,
+    opencode: null,
   };
+
+  for (const provider of requestedProviders) {
+    const summary =
+      provider === "claude"
+        ? await loadClaudeRows(start, end)
+        : provider === "codex"
+          ? await loadCodexRows(start, end)
+          : await loadOpenCodeRows(start, end);
+
+    rowsByProvider[provider] = hasUsage(summary) ? summary : null;
+  }
+
+  return rowsByProvider;
 }

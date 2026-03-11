@@ -8,10 +8,10 @@ import {
   addDailyTokenTotals,
   addModelTokenTotals,
   createUsageSummary,
+  forEachJsonLine,
   getRecentWindowStart,
   listFilesRecursive,
   normalizeModelName,
-  readJsonLines,
 } from "./utils";
 
 interface CodexRawUsage {
@@ -142,11 +142,7 @@ function extractCodexModel(payload?: CodexEventPayload) {
   return undefined;
 }
 
-async function parseCodexFile(filePath: string) {
-  return readJsonLines<CodexEventEntry>(filePath);
-}
-
-async function parseCodexFiles() {
+async function getCodexFiles() {
   const codexHome = process.env.CODEX_HOME?.trim()
     ? resolve(process.env.CODEX_HOME)
     : join(homedir(), ".codex");
@@ -155,34 +151,34 @@ async function parseCodexFiles() {
 
   const files = await listFilesRecursive(sessionsDir, ".jsonl");
 
-  return Promise.all(files.map((file) => parseCodexFile(file)));
+  return files;
 }
 
 export async function loadCodexRows(
   start: Date,
   end: Date,
 ): Promise<UsageSummary> {
-  const sessions = await parseCodexFiles();
-
+  const files = await getCodexFiles();
   const totals: DailyTotalsByDate = new Map();
   const recentStart = getRecentWindowStart(end, 30);
   const modelTotals = new Map<string, ModelTokenTotals>();
   const recentModelTotals = new Map<string, ModelTokenTotals>();
 
-  for (const session of sessions) {
+  for (const file of files) {
     let previousTotals: CodexNormalizedUsage | null = null;
     let currentModel: string | undefined;
 
-    for (const entry of session) {
+    await forEachJsonLine<CodexEventEntry>(file, async (entry) => {
       const extractedModel = extractCodexModel(entry.payload);
 
       if (entry.type === "turn_context") {
         currentModel = extractedModel ?? currentModel;
-        continue;
+
+        return;
       }
 
       if (entry.type !== "event_msg" || entry.payload?.type !== "token_count") {
-        continue;
+        return;
       }
 
       const info = entry.payload.info;
@@ -199,7 +195,7 @@ export async function loadCodexRows(
       }
 
       if (!rawUsage) {
-        continue;
+        return;
       }
 
       const usage: DailyTokenTotals = {
@@ -210,13 +206,13 @@ export async function loadCodexRows(
       };
 
       if (usage.total <= 0) {
-        continue;
+        return;
       }
 
       const date = new Date(entry.timestamp);
 
       if (date < start || date > end) {
-        continue;
+        return;
       }
 
       const modelName = extractedModel ?? currentModel;
@@ -233,7 +229,7 @@ export async function loadCodexRows(
           addModelTokenTotals(recentModelTotals, normalizedModelName, usage);
         }
       }
-    }
+    });
   }
 
   return createUsageSummary("codex", totals, modelTotals, recentModelTotals, end);

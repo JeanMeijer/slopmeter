@@ -1,5 +1,7 @@
-import { readFile, readdir } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import type { DailyUsage, Insights, ModelUsage, UsageSummary } from "../interfaces";
 
 export function formatLocalDate(date: Date) {
@@ -156,13 +158,28 @@ export async function listFilesRecursive(rootDir: string, extension: string) {
   return files;
 }
 
-export async function readJsonLines<T>(filePath: string): Promise<T[]> {
-  const content = await readFile(filePath, "utf8");
+export async function forEachJsonLine<T>(
+  filePath: string,
+  onLine: (value: T) => void | Promise<void>,
+) {
+  const readline = createInterface({
+    input: createReadStream(filePath, { encoding: "utf8" }),
+    crlfDelay: Number.POSITIVE_INFINITY,
+  });
 
-  return content
-    .split(/\r?\n/)
-    .filter((line) => line.trim() !== "")
-    .map((line) => JSON.parse(line.trim()) as T);
+  try {
+    for await (const line of readline) {
+      const trimmed = line.trim();
+
+      if (trimmed === "") {
+        continue;
+      }
+
+      await onLine(JSON.parse(trimmed) as T);
+    }
+  } finally {
+    readline.close();
+  }
 }
 
 export function getRecentWindowStart(endDate: Date, days = 30) {
