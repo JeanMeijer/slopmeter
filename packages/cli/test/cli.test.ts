@@ -67,36 +67,81 @@ function codexTurnContext(model = "gpt-5") {
   });
 }
 
+interface CodexUsageFixture {
+  input?: number;
+  cachedInput?: number;
+  output?: number;
+  reasoningOutput?: number;
+  total?: number;
+}
+
+function codexUsage(options: CodexUsageFixture = {}) {
+  const {
+    input = 10,
+    cachedInput = 0,
+    output = 5,
+    reasoningOutput = 0,
+    total = input + output,
+  } = options;
+
+  return {
+    input_tokens: input,
+    cached_input_tokens: cachedInput,
+    output_tokens: output,
+    reasoning_output_tokens: reasoningOutput,
+    total_tokens: total,
+  };
+}
+
 function codexTokenCount(options: {
   model?: string;
   timestamp?: string;
   input?: number;
+  cachedInput?: number;
   output?: number;
+  reasoningOutput?: number;
   total?: number;
+  lastUsage?: CodexUsageFixture | null;
+  totalUsage?: CodexUsageFixture;
   padding?: string;
 }) {
   const {
-    model = "gpt-5",
+    model,
     timestamp = recentIso(),
     input = 10,
+    cachedInput = 0,
     output = 5,
+    reasoningOutput = 0,
     total = input + output,
+    lastUsage,
+    totalUsage,
     padding,
   } = options;
+  const resolvedLastUsage =
+    lastUsage === null
+      ? undefined
+      : codexUsage({
+          input,
+          cachedInput,
+          output,
+          reasoningOutput,
+          total,
+          ...lastUsage,
+        });
+  const resolvedTotalUsage = totalUsage ? codexUsage(totalUsage) : undefined;
 
   return JSON.stringify({
     type: "event_msg",
     timestamp,
     payload: {
       type: "token_count",
-      model,
+      ...(model ? { model } : {}),
       padding,
       info: {
-        last_token_usage: {
-          input_tokens: input,
-          output_tokens: output,
-          total_tokens: total,
-        },
+        ...(resolvedLastUsage ? { last_token_usage: resolvedLastUsage } : {}),
+        ...(resolvedTotalUsage
+          ? { total_token_usage: resolvedTotalUsage }
+          : {}),
       },
     },
   });
@@ -369,6 +414,226 @@ test("--codex only loads Codex and only reports Codex availability", async (t) =
     ["codex"],
   );
   assert.equal(payload.providers[0]?.daily[0]?.total, 20);
+});
+
+test("Codex derives token usage from cumulative totals and ignores duplicate snapshots", async (t) => {
+  const workspace = createTempWorkspace("codex-cumulative-totals");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const codexHome = join(workspace, "codex");
+  const outputPath = join(workspace, "out.json");
+  const baseTimestamp = new Date();
+
+  baseTimestamp.setUTCHours(0, 0, 0, 0);
+
+  writeJsonlFile(join(codexHome, "sessions", "session.jsonl"), [
+    JSON.stringify({
+      type: "turn_context",
+      timestamp: new Date(baseTimestamp.getTime()).toISOString(),
+      payload: { model: "gpt-5.2" },
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 1_000).toISOString(),
+      input: 100,
+      cachedInput: 20,
+      output: 30,
+      reasoningOutput: 5,
+      total: 130,
+      totalUsage: {
+        input: 100,
+        cachedInput: 20,
+        output: 30,
+        reasoningOutput: 5,
+        total: 130,
+      },
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 2_000).toISOString(),
+      input: 100,
+      cachedInput: 20,
+      output: 30,
+      reasoningOutput: 5,
+      total: 130,
+      totalUsage: {
+        input: 100,
+        cachedInput: 20,
+        output: 30,
+        reasoningOutput: 5,
+        total: 130,
+      },
+    }),
+  ]);
+
+  const result = await runCli(
+    ["--codex", "--format", "json", "--output", outputPath],
+    {
+      CODEX_HOME: codexHome,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{
+        date: string;
+        input: number;
+        output: number;
+        cache: { input: number; output: number };
+        total: number;
+        breakdown: Array<{ name: string; tokens: { total: number } }>;
+      }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["codex"],
+  );
+  assert.deepEqual(
+    payload.providers[0]?.daily.map((day) => ({
+      date: day.date,
+      input: day.input,
+      output: day.output,
+      cache: day.cache,
+      total: day.total,
+      model: day.breakdown[0]?.name,
+      modelTotal: day.breakdown[0]?.tokens.total,
+    })),
+    [
+      {
+        date: formatLocalDate(baseTimestamp),
+        input: 100,
+        output: 30,
+        cache: { input: 20, output: 0 },
+        total: 130,
+        model: "gpt-5.2",
+        modelTotal: 130,
+      },
+    ],
+  );
+});
+
+test("Codex falls back to last usage when cumulative totals roll back", async (t) => {
+  const workspace = createTempWorkspace("codex-total-rollback");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const codexHome = join(workspace, "codex");
+  const outputPath = join(workspace, "out.json");
+  const baseTimestamp = new Date();
+
+  baseTimestamp.setUTCHours(0, 0, 0, 0);
+
+  writeJsonlFile(join(codexHome, "sessions", "session.jsonl"), [
+    JSON.stringify({
+      type: "turn_context",
+      timestamp: new Date(baseTimestamp.getTime()).toISOString(),
+      payload: { model: "gpt-5.2" },
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 1_000).toISOString(),
+      input: 100,
+      output: 30,
+      total: 130,
+      totalUsage: { input: 100, output: 30, total: 130 },
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 2_000).toISOString(),
+      input: 7,
+      output: 5,
+      total: 12,
+      totalUsage: { input: 7, output: 5, total: 12 },
+    }),
+  ]);
+
+  const result = await runCli(
+    ["--codex", "--format", "json", "--output", outputPath],
+    {
+      CODEX_HOME: codexHome,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{ provider: string; daily: Array<{ total: number }> }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["codex"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 142);
+});
+
+test("Codex advances the cumulative baseline across last-usage-only records", async (t) => {
+  const workspace = createTempWorkspace("codex-last-usage-baseline");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const codexHome = join(workspace, "codex");
+  const outputPath = join(workspace, "out.json");
+  const baseTimestamp = new Date();
+
+  baseTimestamp.setUTCHours(0, 0, 0, 0);
+
+  writeJsonlFile(join(codexHome, "sessions", "session.jsonl"), [
+    JSON.stringify({
+      type: "turn_context",
+      timestamp: new Date(baseTimestamp.getTime()).toISOString(),
+      payload: { model: "gpt-5.2" },
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 1_000).toISOString(),
+      input: 100,
+      output: 30,
+      total: 130,
+      totalUsage: { input: 100, output: 30, total: 130 },
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 2_000).toISOString(),
+      input: 7,
+      output: 5,
+      total: 12,
+      totalUsage: undefined,
+    }),
+    codexTokenCount({
+      timestamp: new Date(baseTimestamp.getTime() + 3_000).toISOString(),
+      input: 1,
+      output: 2,
+      total: 3,
+      lastUsage: { input: 1, output: 2, total: 3 },
+      totalUsage: { input: 108, output: 37, total: 145 },
+    }),
+  ]);
+
+  const result = await runCli(
+    ["--codex", "--format", "json", "--output", outputPath],
+    {
+      CODEX_HOME: codexHome,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{ provider: string; daily: Array<{ total: number }> }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["codex"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 145);
 });
 
 test("--pi only loads Pi Coding Agent and ignores oversized irrelevant session records", async (t) => {

@@ -408,78 +408,75 @@ async function processCursorUsageCsvStream(
   }
 
   let headers: string[] | null = null;
-  let currentField = "";
-  let currentRow: string[] = [];
-  let inQuotes = false;
-  let pendingQuote = false;
-  let sawCarriageReturn = false;
+  const state = {
+    currentField: "",
+    currentRow: [] as string[],
+    inQuotes: false,
+    pendingQuote: false,
+    sawCarriageReturn: false,
+  };
   const decoder = new TextDecoder();
 
   const emitField = () => {
-    currentRow.push(currentField);
-    currentField = "";
+    state.currentRow.push(state.currentField);
+    state.currentField = "";
   };
 
   const emitRow = () => {
     emitField();
 
-    if (currentRow.every((value) => value.trim() === "")) {
-      currentRow = [];
+    if (state.currentRow.every((value) => value.trim() === "")) {
+      state.currentRow = [];
 
       return;
     }
 
     if (!headers) {
-      headers = currentRow;
-      currentRow = [];
+      headers = state.currentRow;
+      state.currentRow = [];
 
       return;
     }
 
-    onRow(createCursorCsvRow(headers, currentRow));
-    currentRow = [];
+    onRow(createCursorCsvRow(headers, state.currentRow));
+    state.currentRow = [];
   };
 
   const processChunk = (chunk: string) => {
     for (const char of chunk) {
-      let shouldReprocess = true;
-
-      while (shouldReprocess) {
-        shouldReprocess = false;
-
-        if (sawCarriageReturn) {
-          sawCarriageReturn = false;
+      for (;;) {
+        if (state.sawCarriageReturn) {
+          state.sawCarriageReturn = false;
 
           if (char === "\n") {
             break;
           }
         }
 
-        if (pendingQuote) {
-          pendingQuote = false;
+        if (state.pendingQuote) {
+          state.pendingQuote = false;
 
           if (char === '"') {
-            currentField += '"';
+            state.currentField += '"';
             break;
           }
 
-          inQuotes = false;
-          shouldReprocess = true;
+          state.inQuotes = false;
           continue;
         }
 
-        if (inQuotes) {
+        if (state.inQuotes) {
           if (char === '"') {
-            pendingQuote = true;
+            state.pendingQuote = true;
           } else {
-            currentField += char;
+            state.currentField += char;
           }
 
           break;
         }
 
         if (char === '"') {
-          inQuotes = true;
+          state.inQuotes = true;
           break;
         }
 
@@ -495,11 +492,11 @@ async function processCursorUsageCsvStream(
 
         if (char === "\r") {
           emitRow();
-          sawCarriageReturn = true;
+          state.sawCarriageReturn = true;
           break;
         }
 
-        currentField += char;
+        state.currentField += char;
         break;
       }
     }
@@ -523,12 +520,11 @@ async function processCursorUsageCsvStream(
 
   processChunk(decoder.decode());
 
-  if (pendingQuote) {
-    pendingQuote = false;
-    inQuotes = false;
+  if (state.pendingQuote) {
+    state.inQuotes = false;
   }
 
-  if (currentField !== "" || currentRow.length > 0) {
+  if (state.currentField !== "" || state.currentRow.length > 0) {
     emitRow();
   }
 }
