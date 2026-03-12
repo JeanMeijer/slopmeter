@@ -11,6 +11,7 @@ import type {
   UsageSummary,
   UsageProviderId,
 } from "./interfaces";
+import { getDefaultOutputPath } from "./output-path";
 import type { ProviderId } from "./providers";
 import { formatLocalDate } from "./lib/utils";
 import {
@@ -317,7 +318,7 @@ async function main() {
     const exportProviders = getOutputProviders(values, rowsByProvider, end);
 
     const outputPath = resolve(
-      values.output ?? `./heatmap-last-year.${format}`,
+      values.output ?? getDefaultOutputPath(values, format),
     );
 
     mkdirSync(dirname(outputPath), { recursive: true });
