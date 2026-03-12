@@ -108,6 +108,7 @@ npx slopmeter --dark --format svg --output ./out/heatmap-dark.svg
 ## Output behavior
 
 - If `--format` is omitted, the format is inferred from the `--output` extension when possible.
+- If `--output` is omitted, the default filename becomes `heatmap-last-year.<ext>`, `heatmap-last-year_<providers>.<ext>` for explicit provider flags, or `heatmap-last-year_all.<ext>` for `--all`.
 - Supported extensions are `.png`, `.svg`, and `.json`.
 - If neither `--format` nor a recognized output extension is provided, PNG is used.
 
