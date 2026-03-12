@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import ora, { type Ora } from "ora";
@@ -7,12 +7,13 @@ import sharp from "sharp";
 import { heatmapThemes, renderUsageHeatmapsSvg, type ColorMode } from "./graph";
 import type {
   JsonExportPayload,
+  JsonDailyUsage,
   JsonUsageSummary,
   UsageSummary,
   UsageProviderId,
 } from "./interfaces";
 import type { ProviderId } from "./providers";
-import { formatLocalDate } from "./lib/utils";
+import { formatLocalDate, mergeUsageSummaries } from "./lib/utils";
 import {
   aggregateUsage,
   mergeProviderUsage,
@@ -32,6 +33,7 @@ interface CliArgValues {
   cursor: boolean;
   opencode: boolean;
   pi: boolean;
+  merge?: string[];
 }
 
 const PNG_BASE_WIDTH = 1000;
@@ -45,6 +47,7 @@ Generate rolling 1-year usage heatmap image(s) (today is the latest day).
 
 Usage:
   slopmeter [--all] [--claude] [--codex] [--cursor] [--opencode] [--pi] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
+  slopmeter --merge export1.json --merge export2.json [--dark] [--format png|svg|json] [--output merged.png]
 
 Options:
   --all                       Render one merged graph for all providers
@@ -53,6 +56,7 @@ Options:
   --cursor                    Render Cursor graph
   --opencode                  Render Open Code graph
   --pi                        Render Pi Coding Agent graph
+  --merge <files...>          Merge multiple JSON exports into one heatmap
   --dark                      Render with the dark theme
   -f, --format                Output format: png, svg, or json (default: png)
   -o, --output                Output file path (default: ./heatmap-last-year.png)
@@ -77,6 +81,7 @@ function validateArgs(values: unknown): asserts values is CliArgValues {
       cursor: ow.boolean,
       opencode: ow.boolean,
       pi: ow.boolean,
+      merge: ow.optional.array.ofType(ow.string.nonEmpty),
     }),
   );
 }
@@ -129,6 +134,37 @@ async function writeOutputImage(
 
 function writeOutputJson(outputPath: string, payload: JsonExportPayload) {
   writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
+function jsonDailyToUsageSummary(json: JsonUsageSummary): UsageSummary {
+  return {
+    provider: json.provider,
+    insights: json.insights,
+    daily: json.daily.map((row: JsonDailyUsage) => ({
+      date: new Date(`${row.date}T00:00:00`),
+      input: row.input ?? 0,
+      output: row.output ?? 0,
+      cache: row.cache ?? { input: 0, output: 0 },
+      total: row.total ?? 0,
+      displayValue: row.displayValue,
+      breakdown: row.breakdown ?? [],
+    })),
+  };
+}
+
+function loadJsonExports(filePaths: string[]): UsageSummary[] {
+  const summaries: UsageSummary[] = [];
+
+  for (const filePath of filePaths) {
+    const raw = readFileSync(resolve(filePath), "utf8");
+    const payload = JSON.parse(raw) as JsonExportPayload;
+
+    for (const provider of payload.providers) {
+      summaries.push(jsonDailyToUsageSummary(provider));
+    }
+  }
+
+  return summaries;
 }
 
 function toJsonUsageSummary(summary: UsageSummary): JsonUsageSummary {
@@ -272,6 +308,7 @@ async function main() {
       cursor: { type: "boolean", default: false },
       opencode: { type: "boolean", default: false },
       pi: { type: "boolean", default: false },
+      merge: { type: "string", multiple: true },
     },
     allowPositionals: false,
   });
@@ -287,14 +324,98 @@ async function main() {
   }
 
   try {
+    const { start, end } = getDateWindow();
+    const colorMode: ColorMode = values.dark ? "dark" : "light";
+    const format = inferFormat(values.format, values.output);
+
+    if (values.merge && values.merge.length > 0) {
+      spinner = ora({
+        text: "Merging JSON exports...",
+        spinner: "dots",
+      }).start();
+
+      const summaries = loadJsonExports(values.merge);
+
+      if (summaries.length === 0) {
+        throw new Error("No provider data found in the given JSON files.");
+      }
+
+      const grouped = new Map<UsageProviderId, UsageSummary[]>();
+
+      for (const summary of summaries) {
+        const existing = grouped.get(summary.provider) ?? [];
+
+        existing.push(summary);
+        grouped.set(summary.provider, existing);
+      }
+
+      const merged: UsageSummary[] = [];
+
+      for (const [provider, group] of grouped) {
+        merged.push(
+          group.length === 1
+            ? group[0]
+            : mergeUsageSummaries(provider, group, end),
+        );
+      }
+
+      const outputPath = resolve(
+        values.output ?? `./heatmap-last-year.${format}`,
+      );
+
+      mkdirSync(dirname(outputPath), { recursive: true });
+
+      if (format === "json") {
+        spinner.text = "Writing output file...";
+
+        const payload: JsonExportPayload = {
+          version: JSON_EXPORT_VERSION,
+          start: formatLocalDate(start),
+          end: formatLocalDate(end),
+          providers: merged.map((s) => toJsonUsageSummary(s)),
+        };
+
+        writeOutputJson(outputPath, payload);
+      } else {
+        spinner.text = "Rendering heatmaps...";
+
+        const svg = renderUsageHeatmapsSvg({
+          startDate: start,
+          endDate: end,
+          colorMode,
+          sections: merged.map(({ provider, daily, insights }) => ({
+            daily,
+            insights,
+            title: heatmapThemes[provider]?.title ?? provider,
+            titleCaption: heatmapThemes[provider]?.titleCaption,
+            colors: heatmapThemes[provider]?.colors ?? heatmapThemes.claude.colors,
+          })),
+        });
+        const background = colorMode === "dark" ? "#171717" : "#ffffff";
+
+        spinner.text = "Writing output file...";
+        await writeOutputImage(outputPath, format, svg, background);
+      }
+
+      spinner.succeed("Merge complete");
+
+      printRunSummary(
+        outputPath,
+        format,
+        colorMode,
+        start,
+        end,
+        merged.map(({ provider }) => provider),
+      );
+
+      return;
+    }
+
     spinner = ora({
       text: "Analyzing usage data...",
       spinner: "dots",
     }).start();
 
-    const { start, end } = getDateWindow();
-    const colorMode: ColorMode = values.dark ? "dark" : "light";
-    const format = inferFormat(values.format, values.output);
     const requestedProviders = values.all
       ? providerIds
       : getRequestedProviders(values);
