@@ -4,6 +4,7 @@ export type UsageProviderId =
   | "cursor"
   | "opencode"
   | "pi"
+  | "crush"
   | "all";
 
 export interface UsageSummary {
@@ -36,6 +37,10 @@ export interface ModelUsage {
       output: number;
     };
     total: number;
+  };
+  metric?: {
+    unit: "tokens" | "messages";
+    value: number;
   };
 }
 

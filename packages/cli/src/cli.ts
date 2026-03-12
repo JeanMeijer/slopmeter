@@ -32,19 +32,20 @@ interface CliArgValues {
   cursor: boolean;
   opencode: boolean;
   pi: boolean;
+  crush: boolean;
 }
 
 const PNG_BASE_WIDTH = 1000;
 const PNG_SCALE = 4;
 const PNG_RENDER_WIDTH = PNG_BASE_WIDTH * PNG_SCALE;
-const JSON_EXPORT_VERSION = "2026-03-03";
+const JSON_EXPORT_VERSION = "2026-03-11";
 
 const HELP_TEXT = `slopmeter
 
 Generate rolling 1-year usage heatmap image(s) (today is the latest day).
 
 Usage:
-  slopmeter [--all] [--claude] [--codex] [--cursor] [--opencode] [--pi] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
+  slopmeter [--all] [--claude] [--codex] [--cursor] [--opencode] [--pi] [--crush] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
 
 Options:
   --all                       Render one merged graph for all providers
@@ -53,6 +54,7 @@ Options:
   --cursor                    Render Cursor graph
   --opencode                  Render Open Code graph
   --pi                        Render Pi Coding Agent graph
+  --crush                     Render Crush graph
   --dark                      Render with the dark theme
   -f, --format                Output format: png, svg, or json (default: png)
   -o, --output                Output file path (default: ./heatmap-last-year.png)
@@ -77,6 +79,7 @@ function validateArgs(values: unknown): asserts values is CliArgValues {
       cursor: ow.boolean,
       opencode: ow.boolean,
       pi: ow.boolean,
+      crush: ow.boolean,
     }),
   );
 }
@@ -191,7 +194,7 @@ function getOutputProviders(
 
   if (!merged) {
     throw new Error(
-      "No usage data found for Claude Code, Codex, Cursor, Open Code, or Pi Coding Agent.",
+      "No usage data found for Claude Code, Codex, Cursor, Open Code, Pi Coding Agent, or Crush.",
     );
   }
 
@@ -226,7 +229,7 @@ function selectProvidersToRender(
 
   if (providersToRender.length === 0) {
     throw new Error(
-      "No usage data found for Claude Code, Codex, Cursor, Open Code, or Pi Coding Agent.",
+      "No usage data found for Claude Code, Codex, Cursor, Open Code, Pi Coding Agent, or Crush.",
     );
   }
 
@@ -272,6 +275,7 @@ async function main() {
       cursor: { type: "boolean", default: false },
       opencode: { type: "boolean", default: false },
       pi: { type: "boolean", default: false },
+      crush: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });

@@ -37,6 +37,12 @@ function recentDate(daysAgo = 0) {
   return date.toISOString().slice(0, 10);
 }
 
+function recentUnix(daysAgo = 0) {
+  return Math.floor(
+    new Date(`${recentDate(daysAgo)}T12:00:00`).getTime() / 1000,
+  );
+}
+
 function formatLocalDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -331,7 +337,153 @@ async function createOpenCodeDb(
   }
 }
 
-async function runCli(args: string[], extraEnv: Record<string, string>) {
+async function createCrushDb(
+  rootDir: string,
+  rows: Array<{
+    id: string;
+    parentSessionId?: string | null;
+    createdAt?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    messages?: Array<{
+      id?: string;
+      role?: string;
+      model?: string;
+      provider?: string;
+      createdAt?: number;
+    }>;
+  }>,
+  options?: {
+    wal?: boolean;
+    keepOpen?: boolean;
+  },
+) {
+  const { DatabaseSync } = await import("node:sqlite");
+  const databasePath = join(rootDir, "crush.db");
+
+  ensureParent(databasePath);
+
+  const database = new DatabaseSync(databasePath);
+
+  database.exec(`PRAGMA journal_mode = ${options?.wal ? "WAL" : "DELETE"};`);
+
+  database.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      parent_session_id TEXT,
+      title TEXT NOT NULL,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cost REAL NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.exec(`
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      model TEXT,
+      provider TEXT,
+      is_summary_message BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  const insert = database.prepare(`
+    INSERT INTO sessions (
+      id,
+      parent_session_id,
+      title,
+      message_count,
+      prompt_tokens,
+      completion_tokens,
+      cost,
+      updated_at,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertMessage = database.prepare(`
+    INSERT INTO messages (
+      id,
+      session_id,
+      role,
+      content,
+      model,
+      provider,
+      is_summary_message,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const row of rows) {
+    const createdAt = row.createdAt ?? recentUnix();
+
+    insert.run(
+      row.id,
+      row.parentSessionId ?? null,
+      `Session ${row.id}`,
+      1,
+      row.promptTokens ?? 0,
+      row.completionTokens ?? 0,
+      0,
+      createdAt,
+      createdAt,
+    );
+
+    for (const [index, message] of (row.messages ?? []).entries()) {
+      const messageCreatedAt = message.createdAt ?? createdAt;
+
+      insertMessage.run(
+        message.id ?? `${row.id}-msg-${index + 1}`,
+        row.id,
+        message.role ?? "assistant",
+        "",
+        message.model ?? null,
+        message.provider ?? null,
+        0,
+        messageCreatedAt,
+        messageCreatedAt,
+      );
+    }
+  }
+
+  if (options?.keepOpen) {
+    return { databasePath, database };
+  }
+
+  database.close();
+
+  return { databasePath, database: undefined };
+}
+
+function writeCrushProjectsFile(
+  globalDataDir: string,
+  projects: Array<{ path: string; dataDir: string }>,
+) {
+  writeJsonFile(
+    join(globalDataDir, "projects.json"),
+    JSON.stringify({
+      projects: projects.map((project) => ({
+        path: project.path,
+        data_dir: project.dataDir,
+        last_accessed: new Date().toISOString(),
+      })),
+    }),
+  );
+}
+
+async function runCli(
+  args: string[],
+  extraEnv: Record<string, string>,
+  options?: { cwd?: string },
+) {
   return await new Promise<{
     code: number | null;
     stdout: string;
@@ -340,12 +492,14 @@ async function runCli(args: string[], extraEnv: Record<string, string>) {
     const child = spawn(cliRuntime, [cliPath, ...args], {
       env: {
         ...process.env,
+        HOME: extraEnv.HOME ?? options?.cwd ?? process.cwd(),
         ...extraEnv,
         FORCE_COLOR: "0",
         NODE_NO_WARNINGS: "1",
         NO_COLOR: "1",
         TERM: "dumb",
       },
+      cwd: options?.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -1285,4 +1439,449 @@ test("OpenCode fails clearly on oversized SQLite message payloads", async (t) =>
   assert.match(result.stderr, /JSON payload exceeds 256 bytes/);
   assert.match(result.stderr, /opencode\.db:message:msg-db-oversized/);
   assert.match(result.stderr, /SLOPMETER_MAX_JSONL_RECORD_BYTES/);
+});
+
+test("--crush only loads Crush from tracked project data dirs", async (t) => {
+  const workspace = createTempWorkspace("crush-only");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const globalDataDir = join(workspace, "global");
+  const projectDir = join(workspace, "project-one");
+  const outputPath = join(workspace, "out.json");
+
+  await createCrushDb(join(projectDir, ".crush"), [
+    {
+      id: "crush-root",
+      createdAt: recentUnix(1),
+      promptTokens: 12,
+      completionTokens: 8,
+    },
+    {
+      id: "crush-child",
+      parentSessionId: "crush-root",
+      createdAt: recentUnix(1),
+      promptTokens: 999,
+      completionTokens: 999,
+    },
+  ]);
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: projectDir,
+      dataDir: ".crush",
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", outputPath],
+    {
+      CRUSH_GLOBAL_DATA: globalDataDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Crush found/);
+  assert.doesNotMatch(result.stdout, /Claude code/);
+  assert.doesNotMatch(result.stdout, /Codex/);
+  assert.doesNotMatch(result.stdout, /Open Code/);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      insights?: Record<string, unknown>;
+      daily: Array<{
+        input: number;
+        output: number;
+        cache: { input: number; output: number };
+        total: number;
+      }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["crush"],
+  );
+  assert.deepEqual(
+    payload.providers[0]?.daily.map((day) => ({
+      input: day.input,
+      output: day.output,
+      cache: day.cache,
+      total: day.total,
+    })),
+    [
+      {
+        input: 12,
+        output: 8,
+        cache: { input: 0, output: 0 },
+        total: 20,
+      },
+    ],
+  );
+  assert.equal(
+    Object.hasOwn(payload.providers[0]?.insights ?? {}, "mostUsedModel"),
+    false,
+  );
+});
+
+test("--crush fails clearly when no Crush data is available", async (t) => {
+  const workspace = createTempWorkspace("crush-missing");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", join(workspace, "out.json")],
+    {
+      CRUSH_GLOBAL_DATA: join(workspace, "global"),
+    },
+    { cwd: workspace },
+  );
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Requested provider data not found: Crush/);
+});
+
+test("Crush participates in default auto-detection and merged output", async (t) => {
+  const workspace = createTempWorkspace("crush-default-and-all");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const globalDataDir = join(workspace, "global");
+  const projectDir = join(workspace, "project-one");
+  const codexHome = join(workspace, "codex");
+  const claudeConfig = join(workspace, "claude");
+  const cursorStateDbPath = join(workspace, "cursor", "state.vscdb");
+  const openCodeDir = join(workspace, "opencode");
+  const outputDefaultPath = join(workspace, "default.json");
+  const outputAllPath = join(workspace, "all.json");
+
+  await createCrushDb(join(projectDir, ".crush"), [
+    {
+      id: "crush-root",
+      createdAt: recentUnix(2),
+      promptTokens: 9,
+      completionTokens: 6,
+    },
+  ]);
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: projectDir,
+      dataDir: ".crush",
+    },
+  ]);
+  writeJsonlFile(join(codexHome, "sessions", "session.jsonl"), [
+    codexTurnContext("gpt-5"),
+    codexTokenCount({
+      timestamp: recentIso(2),
+      input: 7,
+      output: 3,
+      total: 10,
+    }),
+  ]);
+
+  const defaultResult = await runCli(
+    ["--format", "json", "--output", outputDefaultPath],
+    {
+      CLAUDE_CONFIG_DIR: claudeConfig,
+      CODEX_HOME: codexHome,
+      CRUSH_GLOBAL_DATA: globalDataDir,
+      CURSOR_STATE_DB_PATH: cursorStateDbPath,
+      OPENCODE_DATA_DIR: openCodeDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(
+    defaultResult.code,
+    0,
+    defaultResult.stderr || defaultResult.stdout,
+  );
+
+  const defaultPayload = JSON.parse(
+    readFileSync(outputDefaultPath, "utf8"),
+  ) as {
+    providers: Array<{ provider: string }>;
+  };
+
+  assert.deepEqual(
+    defaultPayload.providers.map((provider) => provider.provider),
+    ["codex", "crush"],
+  );
+
+  const allResult = await runCli(
+    ["--all", "--format", "json", "--output", outputAllPath],
+    {
+      CLAUDE_CONFIG_DIR: claudeConfig,
+      CODEX_HOME: codexHome,
+      CRUSH_GLOBAL_DATA: globalDataDir,
+      CURSOR_STATE_DB_PATH: cursorStateDbPath,
+      OPENCODE_DATA_DIR: openCodeDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(allResult.code, 0, allResult.stderr || allResult.stdout);
+
+  const allPayload = JSON.parse(readFileSync(outputAllPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{ total: number }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    allPayload.providers.map((provider) => provider.provider),
+    ["all"],
+  );
+  assert.equal(allPayload.providers[0]?.daily[0]?.total, 25);
+});
+
+test("Crush snapshots WAL-backed databases and renders placeholder model metrics", async (t) => {
+  const workspace = createTempWorkspace("crush-wal");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const globalDataDir = join(workspace, "global");
+  const projectDataDir = join(workspace, "project-data");
+  const outputPath = join(workspace, "out.svg");
+  const { database } = await createCrushDb(
+    projectDataDir,
+    [
+      {
+        id: "crush-root",
+        createdAt: recentUnix(0),
+        promptTokens: 5,
+        completionTokens: 4,
+      },
+    ],
+    { wal: true, keepOpen: true },
+  );
+
+  t.after(() => {
+    database?.close();
+  });
+
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: workspace,
+      dataDir: projectDataDir,
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "svg", "--output", outputPath],
+    {
+      CRUSH_GLOBAL_DATA: globalDataDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const svg = readFileSync(outputPath, "utf8");
+
+  assert.match(svg, /Crush/);
+  assert.match(svg, /Not tracked/);
+});
+
+test("Crush reports most used model by assistant message count", async (t) => {
+  const workspace = createTempWorkspace("crush-model-messages");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const globalDataDir = join(workspace, "global");
+  const projectDir = join(workspace, "project-one");
+  const outputPath = join(workspace, "out.json");
+
+  await createCrushDb(join(projectDir, ".crush"), [
+    {
+      id: "crush-root-old",
+      createdAt: recentUnix(45),
+      promptTokens: 12,
+      completionTokens: 8,
+      messages: [
+        { model: "gpt-5.3-codex", provider: "openai", createdAt: recentUnix(45) },
+        { model: "gpt-5.3-codex", provider: "openai", createdAt: recentUnix(45) },
+      ],
+    },
+    {
+      id: "crush-root-recent",
+      createdAt: recentUnix(2),
+      promptTokens: 10,
+      completionTokens: 6,
+      messages: [
+        { model: "glm-4.7", provider: "zai", createdAt: recentUnix(2) },
+        { model: "glm-4.7", provider: "zai", createdAt: recentUnix(2) },
+        { model: "glm-4.7", provider: "zai", createdAt: recentUnix(2) },
+        { model: "gpt-5.3-codex", provider: "openai", createdAt: recentUnix(2) },
+        { model: "gpt-5.3-codex", provider: "openai", createdAt: recentUnix(2) },
+      ],
+    },
+  ]);
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: projectDir,
+      dataDir: ".crush",
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", outputPath],
+    {
+      CRUSH_GLOBAL_DATA: globalDataDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      insights?: {
+        mostUsedModel?: {
+          name: string;
+          metric?: { unit: string; value: number };
+        };
+        recentMostUsedModel?: {
+          name: string;
+          metric?: { unit: string; value: number };
+        };
+      };
+    }>;
+  };
+
+  assert.equal(
+    payload.providers[0]?.insights?.mostUsedModel?.name,
+    "gpt-5.3-codex (openai)",
+  );
+  assert.deepEqual(payload.providers[0]?.insights?.mostUsedModel?.metric, {
+    unit: "messages",
+    value: 4,
+  });
+  assert.equal(
+    payload.providers[0]?.insights?.recentMostUsedModel?.name,
+    "glm-4.7 (zai)",
+  );
+  assert.deepEqual(payload.providers[0]?.insights?.recentMostUsedModel?.metric, {
+    unit: "messages",
+    value: 3,
+  });
+});
+
+test("Crush falls back to ~/.crush when no project-local database is present", async (t) => {
+  const workspace = createTempWorkspace("crush-home");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const homeDir = join(workspace, "home");
+  const outputPath = join(workspace, "out.json");
+
+  await createCrushDb(join(homeDir, ".crush"), [
+    {
+      id: "crush-home-root",
+      createdAt: recentUnix(1),
+      promptTokens: 4,
+      completionTokens: 3,
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", outputPath],
+    {
+      HOME: homeDir,
+      CRUSH_GLOBAL_DATA: join(homeDir, ".local", "share", "crush"),
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{ total: number }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["crush"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 7);
+});
+
+test("Crush scans HOME for untracked project databases", async (t) => {
+  const workspace = createTempWorkspace("crush-home-scan");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const homeDir = join(workspace, "home");
+  const trackedProjectDir = join(homeDir, "tracked-project");
+  const untrackedProjectDir = join(
+    homeDir,
+    "Documents",
+    "Projects",
+    "Experiments",
+    "git",
+    "personal",
+    "blog",
+  );
+  const globalDataDir = join(homeDir, ".local", "share", "crush");
+  const outputPath = join(workspace, "out.json");
+
+  await createCrushDb(join(trackedProjectDir, ".crush"), []);
+  await createCrushDb(join(untrackedProjectDir, ".crush"), [
+    {
+      id: "crush-untracked-root",
+      createdAt: recentUnix(1),
+      promptTokens: 16,
+      completionTokens: 12,
+    },
+  ]);
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: trackedProjectDir,
+      dataDir: ".crush",
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", outputPath],
+    {
+      HOME: homeDir,
+      CRUSH_GLOBAL_DATA: globalDataDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{ total: number }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["crush"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 28);
 });

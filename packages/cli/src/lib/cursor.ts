@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import Database from "better-sqlite3";
 import type { UsageSummary } from "../interfaces";
 import {
   type DailyTotalsByDate,
@@ -133,30 +132,67 @@ function normalizeCursorDbValue(value: unknown) {
   return undefined;
 }
 
-function readCursorAuthStateFromDatabase(databasePath: string) {
-  const database = new Database(databasePath, {
-    readonly: true,
-    fileMustExist: true,
-  });
+async function loadSqliteModule() {
+  try {
+    const moduleName = "node:sqlite";
+
+    return await import(moduleName);
+  } catch {
+    throw new Error(
+      "Cursor SQLite support requires a Node.js runtime that provides node:sqlite.",
+    );
+  }
+}
+
+async function withoutSqliteExperimentalWarning<T>(callback: () => Promise<T>) {
+  const originalEmitWarning = process.emitWarning.bind(process);
+
+  process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+    const warningText = typeof warning === "string" ? warning : warning.message;
+    const warningType =
+      warning instanceof Error ? warning.name : String(args[0] ?? "");
+
+    if (warningType === "ExperimentalWarning" && /sqlite/i.test(warningText)) {
+      return;
+    }
+
+    return Reflect.apply(originalEmitWarning, process, [
+      warning,
+      ...args,
+    ] as Parameters<typeof process.emitWarning>);
+  }) as typeof process.emitWarning;
 
   try {
-    const query = database.prepare(
-      "SELECT value FROM ItemTable WHERE key = ? LIMIT 1",
-    );
-    const accessRow = query.get("cursorAuth/accessToken") as
-      | { value?: unknown }
-      | undefined;
-    const refreshRow = query.get("cursorAuth/refreshToken") as
-      | { value?: unknown }
-      | undefined;
-
-    return {
-      accessToken: normalizeCursorDbValue(accessRow?.value),
-      refreshToken: normalizeCursorDbValue(refreshRow?.value),
-    } satisfies CursorAuthState;
+    return await callback();
   } finally {
-    database.close();
+    process.emitWarning = originalEmitWarning;
   }
+}
+
+async function readCursorAuthStateFromDatabase(databasePath: string) {
+  return withoutSqliteExperimentalWarning(async () => {
+    const { DatabaseSync } = await loadSqliteModule();
+    const database = new DatabaseSync(databasePath, { readOnly: true });
+
+    try {
+      const query = database.prepare(
+        "SELECT value FROM ItemTable WHERE key = ? LIMIT 1",
+      );
+      const accessRow = query.get("cursorAuth/accessToken") as
+        | { value?: unknown }
+        | undefined;
+      const refreshRow = query.get("cursorAuth/refreshToken") as
+        | { value?: unknown }
+        | undefined;
+
+      return {
+        accessToken: normalizeCursorDbValue(accessRow?.value),
+        refreshToken: normalizeCursorDbValue(refreshRow?.value),
+      } satisfies CursorAuthState;
+    } finally {
+      database.close();
+    }
+  });
 }
 
 function isSqliteLockedError(error: unknown) {
@@ -191,7 +227,7 @@ async function withCursorStateSnapshot<T>(
 
 async function readCursorAuthState(databasePath: string) {
   try {
-    return readCursorAuthStateFromDatabase(databasePath);
+    return await readCursorAuthStateFromDatabase(databasePath);
   } catch (error) {
     if (!isSqliteLockedError(error)) {
       throw error;

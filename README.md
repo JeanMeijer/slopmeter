@@ -1,6 +1,6 @@
 # slopmeter
 
-CLI tool that generates usage heatmaps for Claude Code, Codex, Cursor, Open Code, and Pi Coding Agent for the rolling past year (ending today).
+CLI tool that generates usage heatmaps for Claude Code, Codex, Cursor, Open Code, Crush, and Pi Coding Agent for the rolling past year (ending today).
 
 ## Monorepo layout
 
@@ -60,6 +60,7 @@ slopmeter --claude
 slopmeter --codex
 slopmeter --cursor
 slopmeter --opencode
+slopmeter --crush
 slopmeter --pi
 ```
 
@@ -88,7 +89,7 @@ Model names are normalized to remove a trailing date suffix like `-20251101`.
 ## JSON export
 
 - Use `--format json` (or an `.json` output filename) to export data for interactive rendering.
-- Export includes fixed `version: "2026-03-03"`.
+- Export includes fixed `version: "2026-03-11"`.
 - Each provider includes:
   - `title` and `colors`
   - `daily` rows with `date`, `input`, `output`, `cache`, `total`
@@ -128,4 +129,5 @@ Model names are normalized to remove a trailing date suffix like `-20251101`.
 - Codex: `$CODEX_HOME/sessions` or `~/.codex/sessions`
 - Cursor: reads `cursorAuth/accessToken` and `cursorAuth/refreshToken` from `$CURSOR_STATE_DB_PATH`, `$CURSOR_CONFIG_DIR/User/globalStorage/state.vscdb`, `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` (macOS), `%APPDATA%/Cursor/User/globalStorage/state.vscdb` (Windows), or `~/.config/Cursor/User/globalStorage/state.vscdb` (Linux), then loads usage from Cursor's CSV export endpoint
 - Open Code: prefers `$OPENCODE_DATA_DIR/opencode.db` or `~/.local/share/opencode/opencode.db`, and falls back to `$OPENCODE_DATA_DIR/storage/message` or `~/.local/share/opencode/storage/message`
+- Crush: reads `crush.db` from the current workspace `./.crush`, `~/.crush`, tracked Crush project data dirs listed in global `projects.json`, the global data dir itself, and project-local `.crush/crush.db` files discovered under `HOME` when Crush has not tracked them yet. The global metadata dir is discovered from `$CRUSH_GLOBAL_DATA`, `$XDG_DATA_HOME/crush`, `%LOCALAPPDATA%\\crush`, or `~/.local/share/crush`
 - Pi Coding Agent: `$PI_CODING_AGENT_DIR/sessions` or `~/.pi/agent/sessions`
