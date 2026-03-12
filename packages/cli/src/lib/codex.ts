@@ -103,6 +103,21 @@ function normalizeCodexUsage(value?: CodexRawUsage) {
   };
 }
 
+function addCodexUsage(
+  base: CodexNormalizedUsage | null,
+  delta: CodexNormalizedUsage,
+): CodexNormalizedUsage {
+  return {
+    input_tokens: (base?.input_tokens ?? 0) + delta.input_tokens,
+    cached_input_tokens:
+      (base?.cached_input_tokens ?? 0) + delta.cached_input_tokens,
+    output_tokens: (base?.output_tokens ?? 0) + delta.output_tokens,
+    reasoning_output_tokens:
+      (base?.reasoning_output_tokens ?? 0) + delta.reasoning_output_tokens,
+    total_tokens: (base?.total_tokens ?? 0) + delta.total_tokens,
+  };
+}
+
 function subtractCodexUsage(
   current: CodexNormalizedUsage,
   previous: CodexNormalizedUsage | null,
@@ -130,6 +145,23 @@ function subtractCodexUsage(
       0,
     ),
   };
+}
+
+function didCodexTotalsRollback(
+  current: CodexNormalizedUsage,
+  previous: CodexNormalizedUsage | null,
+) {
+  if (!previous) {
+    return false;
+  }
+
+  return (
+    current.input_tokens < previous.input_tokens ||
+    current.cached_input_tokens < previous.cached_input_tokens ||
+    current.output_tokens < previous.output_tokens ||
+    current.reasoning_output_tokens < previous.reasoning_output_tokens ||
+    current.total_tokens < previous.total_tokens
+  );
 }
 
 function asNonEmptyString(value?: string) {
@@ -491,14 +523,19 @@ async function processCodexFile(
     const info = entry.payload?.info;
     const lastUsage = normalizeCodexUsage(info?.last_token_usage);
     const totalUsage = normalizeCodexUsage(info?.total_token_usage);
-    let rawUsage = lastUsage;
-
-    if (!rawUsage && totalUsage) {
-      rawUsage = subtractCodexUsage(totalUsage, previousTotals);
-    }
+    let rawUsage: CodexNormalizedUsage | null = null;
 
     if (totalUsage) {
+      rawUsage = didCodexTotalsRollback(totalUsage, previousTotals)
+        ? (lastUsage ?? totalUsage)
+        : subtractCodexUsage(totalUsage, previousTotals);
       previousTotals = totalUsage;
+    } else {
+      rawUsage = lastUsage;
+
+      if (rawUsage) {
+        previousTotals = addCodexUsage(previousTotals, rawUsage);
+      }
     }
 
     if (!rawUsage) {
@@ -580,7 +617,8 @@ export async function loadCodexRows(
     mergeModelTotals(recentModelTotals, result.recentModelTotals);
 
     if (result.skippedOversizedIrrelevantRecords > 0) {
-      skippedOversizedIrrelevantRecords += result.skippedOversizedIrrelevantRecords;
+      skippedOversizedIrrelevantRecords +=
+        result.skippedOversizedIrrelevantRecords;
       skippedFiles += 1;
     }
   }
@@ -591,5 +629,11 @@ export async function loadCodexRows(
     );
   }
 
-  return createUsageSummary("codex", totals, modelTotals, recentModelTotals, end);
+  return createUsageSummary(
+    "codex",
+    totals,
+    modelTotals,
+    recentModelTotals,
+    end,
+  );
 }

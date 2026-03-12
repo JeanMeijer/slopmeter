@@ -4,11 +4,18 @@
     "build": {
       "dependsOn": ["^build"],
       "env": [
+        "APPDATA",
         "CI",
-        "NODE_ENV",
         "CLAUDE_CONFIG_DIR",
         "CODEX_HOME",
+        "CURSOR_CONFIG_DIR",
+        "CURSOR_STATE_DB_PATH",
+        "CURSOR_WEB_BASE_URL",
+        "NODE_ENV",
         "OPENCODE_DATA_DIR",
+        "PI_CODING_AGENT_DIR",
+        "SLOPMETER_FILE_PROCESS_CONCURRENCY",
+        "SLOPMETER_MAX_JSONL_RECORD_BYTES",
         "XDG_CONFIG_HOME"
       ],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
@@ -21,10 +28,17 @@
       "cache": false,
       "persistent": true,
       "env": [
-        "NODE_ENV",
+        "APPDATA",
         "CLAUDE_CONFIG_DIR",
         "CODEX_HOME",
+        "CURSOR_CONFIG_DIR",
+        "CURSOR_STATE_DB_PATH",
+        "CURSOR_WEB_BASE_URL",
+        "NODE_ENV",
         "OPENCODE_DATA_DIR",
+        "PI_CODING_AGENT_DIR",
+        "SLOPMETER_FILE_PROCESS_CONCURRENCY",
+        "SLOPMETER_MAX_JSONL_RECORD_BYTES",
         "XDG_CONFIG_HOME"
       ]
     },
