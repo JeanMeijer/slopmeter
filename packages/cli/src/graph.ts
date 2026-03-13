@@ -136,6 +136,25 @@ export const heatmapThemes: Record<HeatmapThemeId, HeatmapTheme> = {
       ],
     },
   },
+  gemini: {
+    title: "Gemini CLI",
+    colors: {
+      light: [
+        "#eff6ff", // blue-50
+        "#bfdbfe", // blue-200
+        "#93c5fd", // blue-300
+        "#3b82f6", // blue-500
+        "#1d4ed8", // blue-700
+      ],
+      dark: [
+        "#172554", // blue-950
+        "#1d4ed8", // blue-700
+        "#2563eb", // blue-600
+        "#60a5fa", // blue-400
+        "#bfdbfe", // blue-200
+      ],
+    },
+  },
   opencode: {
     title: "Open Code",
     colors: {
@@ -175,7 +194,8 @@ export const heatmapThemes: Record<HeatmapThemeId, HeatmapTheme> = {
     },
   },
   all: {
-    title: "Codex / Claude Code / Cursor / Open Code / Pi Coding Agent",
+    title:
+      "Claude Code / Codex / Cursor / Gemini CLI / Open Code / Pi Coding Agent",
     titleCaption: "Total usage from",
     colors: {
       light: [

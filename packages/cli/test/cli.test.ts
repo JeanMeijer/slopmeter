@@ -229,6 +229,69 @@ function openCodeMessage(options: {
   });
 }
 
+function geminiMessage(options: {
+  id?: string;
+  timestamp?: string;
+  type?: string;
+  model?: string;
+  input?: number;
+  output?: number;
+  cached?: number;
+  thoughts?: number;
+  tool?: number;
+  total?: number;
+}) {
+  const {
+    id = "gemini-msg-1",
+    timestamp = recentIso(),
+    type = "gemini",
+    model = "gemini-3.1-pro-preview",
+    input = 10,
+    output = 5,
+    cached = 0,
+    thoughts = 0,
+    tool = 0,
+    total = input + output + thoughts + tool,
+  } = options;
+
+  return {
+    id,
+    timestamp,
+    type,
+    model,
+    content: "done",
+    tokens: {
+      input,
+      output,
+      cached,
+      thoughts,
+      tool,
+      total,
+    },
+  };
+}
+
+function geminiSession(options: {
+  sessionId?: string;
+  startTime?: string;
+  lastUpdated?: string;
+  messages: Array<Record<string, unknown>>;
+}) {
+  const {
+    sessionId = "gemini-session-1",
+    startTime = recentIso(),
+    lastUpdated = recentIso(),
+    messages,
+  } = options;
+
+  return JSON.stringify({
+    sessionId,
+    startTime,
+    lastUpdated,
+    messages,
+  });
+}
+
 function piSessionHeader(cwd = "/tmp") {
   return JSON.stringify({
     type: "session",
@@ -332,6 +395,8 @@ async function createOpenCodeDb(
 }
 
 async function runCli(args: string[], extraEnv: Record<string, string>) {
+  const isolatedHome = extraEnv.HOME ?? tmpdir();
+
   return await new Promise<{
     code: number | null;
     stdout: string;
@@ -340,6 +405,7 @@ async function runCli(args: string[], extraEnv: Record<string, string>) {
     const child = spawn(cliRuntime, [cliPath, ...args], {
       env: {
         ...process.env,
+        HOME: isolatedHome,
         ...extraEnv,
         FORCE_COLOR: "0",
         NODE_NO_WARNINGS: "1",
@@ -699,6 +765,340 @@ test("--pi only loads Pi Coding Agent and ignores oversized irrelevant session r
   assert.equal(payload.providers[0]?.daily[0]?.output, 7);
   assert.equal(payload.providers[0]?.daily[0]?.total, 21);
   assert.equal(payload.providers[0]?.daily[0]?.breakdown[0]?.name, "gpt-5.4");
+});
+
+test("--gemini only loads Gemini CLI and only reports Gemini availability", async (t) => {
+  const workspace = createTempWorkspace("gemini-only");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const geminiDir = join(workspace, "gemini");
+  const outputPath = join(workspace, "out.json");
+
+  writeJsonFile(
+    join(geminiDir, "tmp", "project-a", "chats", "session-1.json"),
+    geminiSession({
+      messages: [
+        {
+          id: "user-1",
+          timestamp: `${recentDate(1)}T10:00:00.000Z`,
+          type: "user",
+          content: [{ text: "hello" }],
+        },
+        geminiMessage({
+          id: "gemini-1",
+          timestamp: `${recentDate(1)}T10:01:00.000Z`,
+          input: 12,
+          output: 8,
+          total: 20,
+        }),
+      ],
+    }),
+  );
+
+  const result = await runCli(
+    ["--gemini", "--format", "json", "--output", outputPath],
+    {
+      GEMINI_CONFIG_DIR: geminiDir,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Gemini CLI found/);
+  assert.doesNotMatch(result.stdout, /Claude code/);
+  assert.doesNotMatch(result.stdout, /Codex/);
+  assert.doesNotMatch(result.stdout, /Open Code/);
+  assert.doesNotMatch(result.stdout, /Pi Coding Agent/);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{ provider: string; daily: Array<{ total: number }> }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["gemini"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 20);
+});
+
+test("Gemini recomputes totals from cache/thoughts/tool tokens and deduplicates session snapshots", async (t) => {
+  const workspace = createTempWorkspace("gemini-dedupe");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const geminiDir = join(workspace, "gemini");
+  const outputPath = join(workspace, "out.json");
+  const duplicateMessage = geminiMessage({
+    id: "gemini-dup-1",
+    timestamp: `${recentDate(2)}T09:00:00.000Z`,
+    model: "gemini-3.1-pro-preview-20260101",
+    input: 10,
+    output: 5,
+    cached: 3,
+    thoughts: 4,
+    tool: 2,
+    total: 21,
+  });
+
+  writeJsonFile(
+    join(geminiDir, "tmp", "project-a", "chats", "session-1.json"),
+    geminiSession({
+      sessionId: "gemini-session-dup",
+      lastUpdated: `${recentDate(2)}T09:10:00.000Z`,
+      messages: [
+        {
+          id: "info-1",
+          timestamp: `${recentDate(2)}T08:59:00.000Z`,
+          type: "info",
+          content: "update available",
+        },
+        duplicateMessage,
+      ],
+    }),
+  );
+  writeJsonFile(
+    join(geminiDir, "tmp", "project-b", "chats", "session-2.json"),
+    geminiSession({
+      sessionId: "gemini-session-dup",
+      lastUpdated: `${recentDate(0)}T11:00:00.000Z`,
+      messages: [
+        duplicateMessage,
+        {
+          id: "warning-1",
+          timestamp: `${recentDate(1)}T10:00:00.000Z`,
+          type: "warning",
+          content: "be careful",
+        },
+        geminiMessage({
+          id: "gemini-2",
+          timestamp: `${recentDate(0)}T11:01:00.000Z`,
+          model: "gemini-2.5-flash",
+          input: 7,
+          output: 1,
+          cached: 1,
+          thoughts: 0,
+          tool: 0,
+          total: 8,
+        }),
+      ],
+    }),
+  );
+
+  const result = await runCli(
+    ["--gemini", "--format", "json", "--output", outputPath],
+    {
+      GEMINI_CONFIG_DIR: geminiDir,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{
+        date: string;
+        input: number;
+        output: number;
+        total: number;
+        breakdown: Array<{
+          name: string;
+          tokens: {
+            input: number;
+            output: number;
+            cache: { input: number; output: number };
+            total: number;
+          };
+        }>;
+      }>;
+      insights?: {
+        mostUsedModel?: { name: string };
+        recentMostUsedModel?: { name: string };
+      };
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers[0]?.daily.map((day) => ({
+      date: day.date,
+      input: day.input,
+      output: day.output,
+      total: day.total,
+      model: day.breakdown[0]?.name,
+      cacheInput: day.breakdown[0]?.tokens.cache.input,
+    })),
+    [
+      {
+        date: recentDate(2),
+        input: 13,
+        output: 11,
+        total: 24,
+        model: "gemini-3.1-pro-preview",
+        cacheInput: 3,
+      },
+      {
+        date: recentDate(0),
+        input: 8,
+        output: 1,
+        total: 9,
+        model: "gemini-2.5-flash",
+        cacheInput: 1,
+      },
+    ],
+  );
+  assert.equal(
+    payload.providers[0]?.insights?.mostUsedModel?.name,
+    "gemini-3.1-pro-preview",
+  );
+  assert.equal(
+    payload.providers[0]?.insights?.recentMostUsedModel?.name,
+    "gemini-3.1-pro-preview",
+  );
+});
+
+test("Gemini keeps same message IDs from different sessions distinct", async (t) => {
+  const workspace = createTempWorkspace("gemini-session-scope");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const geminiDir = join(workspace, "gemini");
+  const outputPath = join(workspace, "out.json");
+
+  writeJsonFile(
+    join(geminiDir, "tmp", "project-a", "chats", "session-1.json"),
+    geminiSession({
+      sessionId: "gemini-session-a",
+      messages: [
+        geminiMessage({
+          id: "shared-message-id",
+          timestamp: `${recentDate(1)}T10:00:00.000Z`,
+          input: 4,
+          output: 3,
+          total: 7,
+        }),
+      ],
+    }),
+  );
+  writeJsonFile(
+    join(geminiDir, "tmp", "project-b", "chats", "session-2.json"),
+    geminiSession({
+      sessionId: "gemini-session-b",
+      messages: [
+        geminiMessage({
+          id: "shared-message-id",
+          timestamp: `${recentDate(1)}T12:00:00.000Z`,
+          input: 5,
+          output: 4,
+          total: 9,
+        }),
+      ],
+    }),
+  );
+
+  const result = await runCli(
+    ["--gemini", "--format", "json", "--output", outputPath],
+    {
+      GEMINI_CONFIG_DIR: geminiDir,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      daily: Array<{
+        date: string;
+        total: number;
+        input: number;
+        output: number;
+        breakdown: Array<{ name: string; tokens: { total: number } }>;
+      }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers[0]?.daily.map((day) => ({
+      date: day.date,
+      input: day.input,
+      output: day.output,
+      total: day.total,
+      model: day.breakdown[0]?.name,
+      modelTotal: day.breakdown[0]?.tokens.total,
+    })),
+    [
+      {
+        date: recentDate(1),
+        input: 9,
+        output: 7,
+        total: 16,
+        model: "gemini-3.1-pro-preview",
+        modelTotal: 16,
+      },
+    ],
+  );
+});
+
+test("Gemini CLI participates in multi-provider output order", async (t) => {
+  const workspace = createTempWorkspace("gemini-default-order");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const geminiDir = join(workspace, "gemini");
+  const piAgentDir = join(workspace, "pi-agent");
+  const outputPath = join(workspace, "out.json");
+
+  writeJsonFile(
+    join(geminiDir, "tmp", "project-a", "chats", "session-1.json"),
+    geminiSession({
+      messages: [
+        geminiMessage({
+          id: "gemini-default-1",
+          timestamp: `${recentDate(1)}T13:00:00.000Z`,
+          input: 3,
+          output: 2,
+          total: 5,
+        }),
+      ],
+    }),
+  );
+  writeJsonlFile(join(piAgentDir, "sessions", "session.jsonl"), [
+    piSessionHeader(workspace),
+    piAssistantMessage({
+      timestamp: `${recentDate(0)}T14:00:00.000Z`,
+      input: 4,
+      output: 3,
+      totalTokens: 7,
+    }),
+  ]);
+
+  const result = await runCli(
+    ["--gemini", "--pi", "--format", "json", "--output", outputPath],
+    {
+      GEMINI_CONFIG_DIR: geminiDir,
+      PI_CODING_AGENT_DIR: piAgentDir,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Gemini CLI found/);
+  assert.match(result.stdout, /Pi Coding Agent found/);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{ provider: string }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["gemini", "pi"],
+  );
 });
 
 test("Codex skips oversized irrelevant records and still counts token usage", async (t) => {
@@ -1284,5 +1684,59 @@ test("OpenCode fails clearly on oversized SQLite message payloads", async (t) =>
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /JSON payload exceeds 256 bytes/);
   assert.match(result.stderr, /opencode\.db:message:msg-db-oversized/);
+  assert.match(result.stderr, /SLOPMETER_MAX_JSONL_RECORD_BYTES/);
+});
+
+test("Gemini fails clearly on oversized session JSON documents", async (t) => {
+  const workspace = createTempWorkspace("gemini-oversized");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const geminiDir = join(workspace, "gemini");
+  const oversizedFile = join(
+    geminiDir,
+    "tmp",
+    "project-a",
+    "chats",
+    "session-oversized.json",
+  );
+
+  writeJsonFile(
+    oversizedFile,
+    JSON.stringify({
+      sessionId: "gemini-oversized",
+      startTime: recentIso(),
+      lastUpdated: recentIso(),
+      messages: [
+        {
+          ...geminiMessage({
+            id: "gemini-oversized-1",
+            timestamp: `${recentDate(0)}T15:00:00.000Z`,
+            input: 1,
+            output: 1,
+            total: 2,
+          }),
+          padding: "x".repeat(1024),
+        },
+      ],
+    }),
+  );
+
+  const result = await runCli(
+    ["--gemini", "--format", "json", "--output", join(workspace, "out.json")],
+    {
+      GEMINI_CONFIG_DIR: geminiDir,
+      SLOPMETER_MAX_JSONL_RECORD_BYTES: "256",
+    },
+  );
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Gemini session JSON document exceeds 256 bytes/);
+  assert.match(
+    result.stderr,
+    new RegExp(oversizedFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+  );
   assert.match(result.stderr, /SLOPMETER_MAX_JSONL_RECORD_BYTES/);
 });
