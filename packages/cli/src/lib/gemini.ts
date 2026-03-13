@@ -34,6 +34,7 @@ interface GeminiMessage {
 }
 
 interface GeminiSession {
+  sessionId?: string;
   messages?: GeminiMessage[];
 }
 
@@ -66,12 +67,13 @@ function createGeminiTokenTotals(tokens: GeminiTokens): DailyTokenTotals {
   };
 }
 
-function getGeminiMessageKey(message: GeminiMessage) {
-  if (message.id) {
-    return message.id;
-  }
-
+function getGeminiMessageKey(
+  sessionId: string | undefined,
+  message: GeminiMessage,
+) {
   return JSON.stringify({
+    sessionId,
+    messageId: message.id,
     timestamp: message.timestamp,
     model: message.model,
     tokens: message.tokens,
@@ -116,7 +118,7 @@ export async function loadGeminiRows(
         continue;
       }
 
-      const messageKey = getGeminiMessageKey(message);
+      const messageKey = getGeminiMessageKey(session.sessionId, message);
 
       if (dedupe.has(messageKey)) {
         continue;
