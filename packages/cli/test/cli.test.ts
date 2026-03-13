@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -15,6 +15,11 @@ import { summarizeCursorUsageCsv } from "../src/lib/cursor";
 
 const cliPath = resolve(import.meta.dirname, "../dist/cli.js");
 const cliRuntime = process.release.name === "node" ? process.execPath : "node";
+const npmRuntime = process.platform === "win32" ? "npm.cmd" : "npm";
+const tarRuntime =
+  process.platform === "win32"
+    ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "tar";
 
 function createTempWorkspace(label: string) {
   return mkdtempSync(join(tmpdir(), `slopmeter-${label}-`));
@@ -57,6 +62,43 @@ function writeJsonlFile(path: string, records: string[]) {
 function writeJsonFile(path: string, value: string) {
   ensureParent(path);
   writeFileSync(path, value, "utf8");
+}
+
+function createHomeEnv(homeDir: string) {
+  return {
+    HOME: homeDir,
+    USERPROFILE: homeDir,
+  };
+}
+
+function packCliPackage(packDir: string) {
+  const result = spawnSync(
+    `${npmRuntime} pack --json --pack-destination "${packDir}"`,
+    {
+      cwd: resolve(import.meta.dirname, ".."),
+      encoding: "utf8",
+      shell: true,
+      env: {
+        ...process.env,
+        npm_config_audit: "false",
+        npm_config_fund: "false",
+      },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const output = JSON.parse(result.stdout) as Array<{ filename: string }>;
+
+  return join(packDir, output[0]!.filename);
+}
+
+function extractTarball(tarballPath: string, extractDir: string) {
+  const result = spawnSync(tarRuntime, ["-xzf", tarballPath, "-C", extractDir], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 }
 
 function codexTurnContext(model = "gpt-5") {
@@ -701,6 +743,44 @@ test("--pi only loads Pi Coding Agent and ignores oversized irrelevant session r
   assert.equal(payload.providers[0]?.daily[0]?.breakdown[0]?.name, "gpt-5.4");
 });
 
+test("Pi discovers ~/.pi/agent/sessions from the default home directory layout", async (t) => {
+  const workspace = createTempWorkspace("pi-home-discovery");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const outputPath = join(workspace, "out.json");
+
+  writeJsonlFile(join(workspace, ".pi", "agent", "sessions", "session.jsonl"), [
+    piSessionHeader(workspace),
+    piAssistantMessage({
+      input: 7,
+      output: 5,
+      cacheRead: 3,
+      totalTokens: 15,
+    }),
+  ]);
+
+  const result = await runCli(
+    ["--pi", "--format", "json", "--output", outputPath],
+    createHomeEnv(workspace),
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Pi Coding Agent found/);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{ provider: string; daily: Array<{ total: number }> }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["pi"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 15);
+});
+
 test("Codex skips oversized irrelevant records and still counts token usage", async (t) => {
   const workspace = createTempWorkspace("codex-oversized-irrelevant");
 
@@ -1285,4 +1365,36 @@ test("OpenCode fails clearly on oversized SQLite message payloads", async (t) =>
   assert.match(result.stderr, /JSON payload exceeds 256 bytes/);
   assert.match(result.stderr, /opencode\.db:message:msg-db-oversized/);
   assert.match(result.stderr, /SLOPMETER_MAX_JSONL_RECORD_BYTES/);
+});
+
+test("npm pack artifact includes Pi Coding Agent support", (t) => {
+  const workspace = createTempWorkspace("pi-pack-artifact");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const extractDir = join(workspace, "extract");
+
+  mkdirSync(extractDir, { recursive: true });
+
+  const tarballPath = packCliPackage(workspace);
+
+  extractTarball(tarballPath, extractDir);
+
+  const packedPackageJson = JSON.parse(
+    readFileSync(join(extractDir, "package", "package.json"), "utf8"),
+  ) as {
+    description: string;
+    keywords: string[];
+  };
+  const packedCli = readFileSync(
+    join(extractDir, "package", "dist", "cli.js"),
+    "utf8",
+  );
+
+  assert.match(packedPackageJson.description, /Pi Coding Agent/);
+  assert.ok(packedPackageJson.keywords.includes("pi-coding-agent"));
+  assert.match(packedCli, /--pi/);
+  assert.match(packedCli, /Pi Coding Agent/);
 });
