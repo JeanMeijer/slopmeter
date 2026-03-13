@@ -960,6 +960,90 @@ test("Gemini recomputes totals from cache/thoughts/tool tokens and deduplicates 
   );
 });
 
+test("Gemini keeps same message IDs from different sessions distinct", async (t) => {
+  const workspace = createTempWorkspace("gemini-session-scope");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const geminiDir = join(workspace, "gemini");
+  const outputPath = join(workspace, "out.json");
+
+  writeJsonFile(
+    join(geminiDir, "tmp", "project-a", "chats", "session-1.json"),
+    geminiSession({
+      sessionId: "gemini-session-a",
+      messages: [
+        geminiMessage({
+          id: "shared-message-id",
+          timestamp: `${recentDate(1)}T10:00:00.000Z`,
+          input: 4,
+          output: 3,
+          total: 7,
+        }),
+      ],
+    }),
+  );
+  writeJsonFile(
+    join(geminiDir, "tmp", "project-b", "chats", "session-2.json"),
+    geminiSession({
+      sessionId: "gemini-session-b",
+      messages: [
+        geminiMessage({
+          id: "shared-message-id",
+          timestamp: `${recentDate(1)}T12:00:00.000Z`,
+          input: 5,
+          output: 4,
+          total: 9,
+        }),
+      ],
+    }),
+  );
+
+  const result = await runCli(
+    ["--gemini", "--format", "json", "--output", outputPath],
+    {
+      GEMINI_CONFIG_DIR: geminiDir,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      daily: Array<{
+        date: string;
+        total: number;
+        input: number;
+        output: number;
+        breakdown: Array<{ name: string; tokens: { total: number } }>;
+      }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers[0]?.daily.map((day) => ({
+      date: day.date,
+      input: day.input,
+      output: day.output,
+      total: day.total,
+      model: day.breakdown[0]?.name,
+      modelTotal: day.breakdown[0]?.tokens.total,
+    })),
+    [
+      {
+        date: recentDate(1),
+        input: 9,
+        output: 7,
+        total: 16,
+        model: "gemini-3.1-pro-preview",
+        modelTotal: 16,
+      },
+    ],
+  );
+});
+
 test("Gemini CLI participates in multi-provider output order", async (t) => {
   const workspace = createTempWorkspace("gemini-default-order");
 
