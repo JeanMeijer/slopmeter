@@ -64,10 +64,21 @@ function writeJsonFile(path: string, value: string) {
   writeFileSync(path, value, "utf8");
 }
 
-function createHomeEnv(homeDir: string) {
+function createHomeEnv(homeDir: string): NodeJS.ProcessEnv {
+  if (process.platform === "win32") {
+    return {
+      HOME: undefined,
+      HOMEDRIVE: undefined,
+      HOMEPATH: undefined,
+      PI_CODING_AGENT_DIR: undefined,
+      USERPROFILE: homeDir,
+    };
+  }
+
   return {
     HOME: homeDir,
-    USERPROFILE: homeDir,
+    PI_CODING_AGENT_DIR: undefined,
+    USERPROFILE: undefined,
   };
 }
 
@@ -373,21 +384,29 @@ async function createOpenCodeDb(
   }
 }
 
-async function runCli(args: string[], extraEnv: Record<string, string>) {
+async function runCli(args: string[], extraEnv: NodeJS.ProcessEnv) {
   return await new Promise<{
     code: number | null;
     stdout: string;
     stderr: string;
   }>((resolveRun, reject) => {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...extraEnv,
+      FORCE_COLOR: "0",
+      NODE_NO_WARNINGS: "1",
+      NO_COLOR: "1",
+      TERM: "dumb",
+    };
+
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) {
+        delete env[key];
+      }
+    }
+
     const child = spawn(cliRuntime, [cliPath, ...args], {
-      env: {
-        ...process.env,
-        ...extraEnv,
-        FORCE_COLOR: "0",
-        NODE_NO_WARNINGS: "1",
-        NO_COLOR: "1",
-        TERM: "dumb",
-      },
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
