@@ -2,6 +2,7 @@ export type UsageProviderId =
   | "claude"
   | "codex"
   | "cursor"
+  | "gemini"
   | "opencode"
   | "pi"
   | "all";
