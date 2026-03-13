@@ -2,6 +2,7 @@ import type { UsageSummary } from "./interfaces";
 import { isClaudeAvailable, loadClaudeRows } from "./lib/claude-code";
 import { isCodexAvailable, loadCodexRows } from "./lib/codex";
 import { isCursorAvailable, loadCursorRows } from "./lib/cursor";
+import { isGeminiAvailable, loadGeminiRows } from "./lib/gemini";
 import {
   defaultProviderIds,
   providerIds,
@@ -32,6 +33,7 @@ function createEmptyProviderAvailability(): ProviderAvailability {
     claude: false,
     codex: false,
     cursor: false,
+    gemini: false,
     opencode: false,
     pi: false,
   };
@@ -45,6 +47,8 @@ export async function isProviderAvailable(provider: ProviderId): Promise<boolean
       return isCodexAvailable();
     case "cursor":
       return isCursorAvailable();
+    case "gemini":
+      return isGeminiAvailable();
     case "opencode":
       return isOpenCodeAvailable();
     case "pi":
@@ -96,6 +100,7 @@ export async function aggregateUsage({
     claude: null,
     codex: null,
     cursor: null,
+    gemini: null,
     opencode: null,
     pi: null,
   };
@@ -113,6 +118,9 @@ export async function aggregateUsage({
         break;
       case "cursor":
         summary = await loadCursorRows(start, end);
+        break;
+      case "gemini":
+        summary = await loadGeminiRows(start, end);
         break;
       case "opencode":
         summary = await loadOpenCodeRows(start, end);

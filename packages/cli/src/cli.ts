@@ -32,6 +32,7 @@ interface CliArgValues {
   claude: boolean;
   codex: boolean;
   cursor: boolean;
+  gemini: boolean;
   opencode: boolean;
   pi: boolean;
 }
@@ -39,20 +40,21 @@ interface CliArgValues {
 const PNG_BASE_WIDTH = 1000;
 const PNG_SCALE = 4;
 const PNG_RENDER_WIDTH = PNG_BASE_WIDTH * PNG_SCALE;
-const JSON_EXPORT_VERSION = "2026-03-03";
+const JSON_EXPORT_VERSION = "2026-03-13";
 
 const HELP_TEXT = `slopmeter
 
 Generate rolling 1-year usage heatmap image(s) (today is the latest day).
 
 Usage:
-  slopmeter [--all] [--claude] [--codex] [--cursor] [--opencode] [--pi] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
+  slopmeter [--all] [--claude] [--codex] [--cursor] [--gemini] [--opencode] [--pi] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
 
 Options:
   --all                       Render one merged graph for all providers
   --claude                    Render Claude Code graph
   --codex                     Render Codex graph
   --cursor                    Render Cursor graph
+  --gemini                    Render Gemini CLI graph
   --opencode                  Render Open Code graph
   --pi                        Render Pi Coding Agent graph
   --dark                      Render with the dark theme
@@ -77,6 +79,7 @@ function validateArgs(values: unknown): asserts values is CliArgValues {
       claude: ow.boolean,
       codex: ow.boolean,
       cursor: ow.boolean,
+      gemini: ow.boolean,
       opencode: ow.boolean,
       pi: ow.boolean,
     }),
@@ -177,6 +180,18 @@ function getRequestedProviders(values: CliArgValues) {
   return providerIds.filter((id) => values[id]);
 }
 
+function getMergedNoDataMessage() {
+  return "No usage data found for Claude Code, Codex, Cursor, Gemini CLI, Open Code, or Pi Coding Agent.";
+}
+
+function getRequestedMissingProvidersMessage(missing: ProviderId[]) {
+  return `Requested provider data not found: ${missing.map((provider) => providerStatusLabel[provider]).join(", ")}`;
+}
+
+function getNoDataMessage() {
+  return getMergedNoDataMessage();
+}
+
 function getOutputProviders(
   values: CliArgValues,
   availabilityByProvider: Record<ProviderId, boolean>,
@@ -194,7 +209,7 @@ function getOutputProviders(
   const merged = mergeProviderUsage(rowsByProvider, end);
 
   if (!merged) {
-    throw new Error("No usage data found for any provider.");
+    throw new Error(getMergedNoDataMessage());
   }
 
   return [merged];
@@ -246,9 +261,7 @@ function selectProvidersToRender(
   if (requested.length > 0 && providersToRender.length < requested.length) {
     const missing = requested.filter((provider) => !rowsByProvider[provider]);
 
-    throw new Error(
-      `Requested provider data not found: ${missing.map((provider) => providerStatusLabel[provider]).join(", ")}`,
-    );
+    throw new Error(getRequestedMissingProvidersMessage(missing));
   }
 
   if (providersToRender.length === 0) {
@@ -269,9 +282,7 @@ function selectProvidersToRender(
       );
     }
 
-    throw new Error(
-      "No usage data found for any provider.",
-    );
+    throw new Error(getNoDataMessage());
   }
 
   return providersToRender.map((provider) => rowsByProvider[provider]!);
@@ -314,6 +325,7 @@ async function main() {
       claude: { type: "boolean", default: false },
       codex: { type: "boolean", default: false },
       cursor: { type: "boolean", default: false },
+      gemini: { type: "boolean", default: false },
       opencode: { type: "boolean", default: false },
       pi: { type: "boolean", default: false },
     },
