@@ -82,6 +82,42 @@ function createHomeEnv(homeDir: string): NodeJS.ProcessEnv {
   };
 }
 
+function createChildEnv(extraEnv: NodeJS.ProcessEnv) {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...extraEnv,
+    FORCE_COLOR: "0",
+    NODE_NO_WARNINGS: "1",
+    NO_COLOR: "1",
+    TERM: "dumb",
+  };
+  const unsetKeys = Object.entries(extraEnv)
+    .filter(([, value]) => value === undefined)
+    .map(([key]) => key);
+
+  if (process.platform === "win32") {
+    const unsetKeyNames = new Set(unsetKeys.map((key) => key.toUpperCase()));
+
+    for (const key of Object.keys(env)) {
+      if (unsetKeyNames.has(key.toUpperCase())) {
+        delete env[key];
+      }
+    }
+  } else {
+    for (const key of unsetKeys) {
+      delete env[key];
+    }
+  }
+
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) {
+      delete env[key];
+    }
+  }
+
+  return env;
+}
+
 function packCliPackage(packDir: string) {
   const result = spawnSync(
     `${npmRuntime} pack --json --pack-destination "${packDir}"`,
@@ -390,23 +426,8 @@ async function runCli(args: string[], extraEnv: NodeJS.ProcessEnv) {
     stdout: string;
     stderr: string;
   }>((resolveRun, reject) => {
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...extraEnv,
-      FORCE_COLOR: "0",
-      NODE_NO_WARNINGS: "1",
-      NO_COLOR: "1",
-      TERM: "dumb",
-    };
-
-    for (const [key, value] of Object.entries(env)) {
-      if (value === undefined) {
-        delete env[key];
-      }
-    }
-
     const child = spawn(cliRuntime, [cliPath, ...args], {
-      env,
+      env: createChildEnv(extraEnv),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -784,6 +805,49 @@ test("Pi discovers ~/.pi/agent/sessions from the default home directory layout",
   const result = await runCli(
     ["--pi", "--format", "json", "--output", outputPath],
     createHomeEnv(workspace),
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Pi Coding Agent found/);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{ provider: string; daily: Array<{ total: number }> }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["pi"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 15);
+});
+
+test("Pi default-home discovery ignores mixed-case PI_CODING_AGENT_DIR variants", async (t) => {
+  const workspace = createTempWorkspace("pi-home-mixed-case-env");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const outputPath = join(workspace, "out.json");
+  const leakedPiAgentDir = join(workspace, "leaked-pi-agent-dir");
+
+  writeJsonlFile(join(workspace, ".pi", "agent", "sessions", "session.jsonl"), [
+    piSessionHeader(workspace),
+    piAssistantMessage({
+      input: 9,
+      output: 4,
+      cacheRead: 2,
+      totalTokens: 15,
+    }),
+  ]);
+  mkdirSync(leakedPiAgentDir, { recursive: true });
+
+  const result = await runCli(
+    ["--pi", "--format", "json", "--output", outputPath],
+    {
+      ...createHomeEnv(workspace),
+      Pi_Coding_Agent_Dir: leakedPiAgentDir,
+    },
   );
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
