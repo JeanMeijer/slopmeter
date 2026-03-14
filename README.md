@@ -67,9 +67,10 @@ slopmeter --pi
 
 - Monday-first contribution-style heatmap for the last year.
 - Top metrics per provider:
-  - `LAST 30 DAYS`
+  - `CACHED INPUT`
   - `INPUT TOKENS`
   - `OUTPUT TOKENS`
+  - cache writes are shown under `OUTPUT TOKENS` when available
   - `TOTAL TOKENS` (includes cache tokens)
 - Bottom metrics per provider:
   - `MOST USED MODEL` (with total tokens)

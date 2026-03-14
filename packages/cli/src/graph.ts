@@ -413,7 +413,9 @@ function drawHeatmapSection(
   const leftColumnX = x + 8;
   let maxValue = 0;
   let totalInputTokens = 0;
+  let totalCachedInputTokens = 0;
   let totalOutputTokens = 0;
+  let totalCachedOutputTokens = 0;
   let totalTokens = 0;
   let firstActivityOnlyDate: string | null = null;
   let firstMeasuredDate: string | null = null;
@@ -435,16 +437,21 @@ function drawHeatmapSection(
       firstMeasuredDate = dateKey;
     }
     totalInputTokens += row.input;
+    totalCachedInputTokens += row.cache.input;
     totalOutputTokens += row.output;
+    totalCachedOutputTokens += row.cache.output;
     totalTokens += row.total;
   }
 
-  const topMetricGap = 120;
+  const topMetricGap = 96;
+  const headerCachedInputX = rightEdge - topMetricGap * 3;
   const headerInputX = rightEdge - topMetricGap * 2;
   const headerOutputX = rightEdge - topMetricGap;
   const totalTokensLabel = formatTokenTotal(totalTokens);
+  const totalCachedInputLabel = formatTokenTotal(totalCachedInputTokens);
   const totalInputLabel = formatTokenTotal(totalInputTokens);
   const totalOutputLabel = formatTokenTotal(totalOutputTokens);
+  const totalCachedOutputLabel = formatTokenTotal(totalCachedOutputTokens);
   const longestStreak = insights?.streaks.longest ?? 0;
   const currentStreak = insights?.streaks.current ?? 0;
 
@@ -488,6 +495,34 @@ function drawHeatmapSection(
       title,
     );
   }
+
+  svg = svg.text(
+    {
+      x: headerCachedInputX,
+      y: y + layout.headerCaptionY,
+      fill: palette.muted,
+      "font-size": metricCaptionFontSize,
+      "font-weight": 600,
+      "text-anchor": "end",
+      "dominant-baseline": "hanging",
+      "font-family": fontFamily,
+    },
+    caption("Cached input"),
+  );
+
+  svg = svg.text(
+    {
+      x: headerCachedInputX,
+      y: y + layout.headerValueY,
+      fill: palette.text,
+      "font-size": metricValueFontSize,
+      "font-weight": 600,
+      "text-anchor": "end",
+      "dominant-baseline": "hanging",
+      "font-family": fontFamily,
+    },
+    totalCachedInputLabel,
+  );
 
   svg = svg.text(
     {
@@ -544,6 +579,21 @@ function drawHeatmapSection(
     },
     totalOutputLabel,
   );
+
+  if (totalCachedOutputTokens > 0) {
+    svg = svg.text(
+      {
+        x: headerOutputX,
+        y: y + layout.headerValueY + metricValueFontSize + 6,
+        fill: palette.muted,
+        "font-size": metricCaptionFontSize,
+        "text-anchor": "end",
+        "dominant-baseline": "hanging",
+        "font-family": fontFamily,
+      },
+      `write ${totalCachedOutputLabel}`,
+    );
+  }
 
   svg = svg.text(
     {
