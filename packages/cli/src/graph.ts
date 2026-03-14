@@ -354,7 +354,9 @@ function getSectionLayout(weekCount: number) {
   const rightPadding = 20;
   const headerCaptionY = 0;
   const headerValueY = headerCaptionY + metricCaptionFontSize + captionValueGap;
-  const topMetricHeight = headerValueY + metricValueFontSize;
+  // Reserve room for the optional cache-write helper line under output tokens.
+  const topMetricHeight =
+    headerValueY + metricValueFontSize + metricCaptionFontSize + 6;
   const topPadding = Math.max(providerTitleFontSize, topMetricHeight) + 20;
   const monthHeaderHeight = 20;
   const titleY = 0;
