@@ -43,7 +43,6 @@ interface DrawHeatmapSectionOptions {
   y: number;
   grid: CalendarGrid;
   layout: SectionLayout;
-  providerId: HeatmapThemeId;
   daily: DailyUsage[];
   insights?: Insights;
   title: string;
@@ -54,7 +53,6 @@ interface DrawHeatmapSectionOptions {
 }
 
 interface RenderUsageHeatmapsSvgSection {
-  providerId: HeatmapThemeId;
   daily: DailyUsage[];
   insights?: Insights;
   title: string;
@@ -250,6 +248,41 @@ function formatTokenTotal(value: number) {
   return numberFormatter.format(value);
 }
 
+function formatTokenTotalDetailed(value: number) {
+  const units = [
+    { size: 1_000_000_000_000, suffix: "T" },
+    { size: 1_000_000_000, suffix: "B" },
+    { size: 1_000_000, suffix: "M" },
+    { size: 1_000, suffix: "K" },
+  ];
+
+  for (const unit of units) {
+    if (value >= unit.size) {
+      const scaled = value / unit.size;
+      const precision = scaled >= 100 ? 1 : 2;
+      const compact = scaled
+        .toFixed(precision)
+        .replace(/\.0+$/, "")
+        .replace(/(\.\d*[1-9])0+$/, "$1");
+
+      return `${compact}${unit.suffix}`;
+    }
+  }
+
+  return numberFormatter.format(value);
+}
+
+function formatPercent(part: number, whole: number) {
+  if (whole <= 0) {
+    return "0%";
+  }
+
+  const percent = (part / whole) * 100;
+  const precision = percent >= 10 ? 1 : 2;
+
+  return `${percent.toFixed(precision)}%`;
+}
+
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) {
     return value;
@@ -401,7 +434,6 @@ function drawHeatmapSection(
     y,
     grid,
     layout,
-    providerId,
     daily,
     insights,
     title,
@@ -441,31 +473,25 @@ function drawHeatmapSection(
     ) {
       firstMeasuredDate = dateKey;
     }
-    const displayedInput =
-      providerId === "cursor"
-        ? row.input - row.cache.input - row.cache.output
-        : row.input - row.cache.input;
-    const displayedOutput =
-      providerId === "claude" ? row.output - row.cache.output : row.output;
-
-    totalInputTokens += Math.max(displayedInput, 0);
+    totalInputTokens += row.input;
     totalCachedInputTokens += row.cache.input;
-    totalOutputTokens += Math.max(displayedOutput, 0);
+    totalOutputTokens += row.output;
     totalCachedOutputTokens += row.cache.output;
     totalTokens += row.total;
   }
 
-  const topMetricGap = 96;
-  const headerCachedInputX = rightEdge - topMetricGap * 3;
+  const topMetricGap = 120;
   const headerInputX = rightEdge - topMetricGap * 2;
   const headerOutputX = rightEdge - topMetricGap;
   const totalTokensLabel = formatTokenTotal(totalTokens);
-  const totalCachedInputLabel = formatTokenTotal(totalCachedInputTokens);
   const totalInputLabel = formatTokenTotal(totalInputTokens);
   const totalOutputLabel = formatTokenTotal(totalOutputTokens);
   const totalCachedOutputLabel = formatTokenTotal(totalCachedOutputTokens);
+  const totalCachedInputLabel = formatTokenTotal(totalCachedInputTokens);
   const longestStreak = insights?.streaks.longest ?? 0;
   const currentStreak = insights?.streaks.current ?? 0;
+  const cachedInputHelperLabel = `cached ${formatTokenTotalDetailed(totalCachedInputTokens)} (${formatPercent(totalCachedInputTokens, totalInputTokens)})`;
+  const cachedOutputHelperLabel = `write ${formatTokenTotalDetailed(totalCachedOutputTokens)} (${formatPercent(totalCachedOutputTokens, totalOutputTokens)})`;
 
   if (titleCaption) {
     svg = svg.text(
@@ -510,34 +536,6 @@ function drawHeatmapSection(
 
   svg = svg.text(
     {
-      x: headerCachedInputX,
-      y: y + layout.headerCaptionY,
-      fill: palette.muted,
-      "font-size": metricCaptionFontSize,
-      "font-weight": 600,
-      "text-anchor": "end",
-      "dominant-baseline": "hanging",
-      "font-family": fontFamily,
-    },
-    caption("Cached input"),
-  );
-
-  svg = svg.text(
-    {
-      x: headerCachedInputX,
-      y: y + layout.headerValueY,
-      fill: palette.text,
-      "font-size": metricValueFontSize,
-      "font-weight": 600,
-      "text-anchor": "end",
-      "dominant-baseline": "hanging",
-      "font-family": fontFamily,
-    },
-    totalCachedInputLabel,
-  );
-
-  svg = svg.text(
-    {
       x: headerInputX,
       y: y + layout.headerCaptionY,
       fill: palette.muted,
@@ -563,6 +561,21 @@ function drawHeatmapSection(
     },
     totalInputLabel,
   );
+
+  if (totalCachedInputTokens > 0) {
+    svg = svg.text(
+      {
+        x: headerInputX,
+        y: y + layout.headerValueY + metricValueFontSize + 6,
+        fill: palette.muted,
+        "font-size": metricCaptionFontSize,
+        "text-anchor": "end",
+        "dominant-baseline": "hanging",
+        "font-family": fontFamily,
+      },
+      cachedInputHelperLabel,
+    );
+  }
 
   svg = svg.text(
     {
@@ -603,7 +616,7 @@ function drawHeatmapSection(
         "dominant-baseline": "hanging",
         "font-family": fontFamily,
       },
-      `write ${totalCachedOutputLabel}`,
+      cachedOutputHelperLabel,
     );
   }
 
@@ -920,7 +933,6 @@ export function renderUsageHeatmapsSvg({
       y: sectionY,
       grid,
       layout,
-      providerId: section.providerId,
       daily: section.daily,
       insights: section.insights,
       title: section.title,
