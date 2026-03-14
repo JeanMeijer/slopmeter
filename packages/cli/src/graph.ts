@@ -248,6 +248,30 @@ function formatTokenTotal(value: number) {
   return numberFormatter.format(value);
 }
 
+function formatTokenTotalDetailed(value: number) {
+  const units = [
+    { size: 1_000_000_000_000, suffix: "T" },
+    { size: 1_000_000_000, suffix: "B" },
+    { size: 1_000_000, suffix: "M" },
+    { size: 1_000, suffix: "K" },
+  ];
+
+  for (const unit of units) {
+    if (value >= unit.size) {
+      const scaled = value / unit.size;
+      const precision = scaled >= 100 ? 1 : 2;
+      const compact = scaled
+        .toFixed(precision)
+        .replace(/\.0+$/, "")
+        .replace(/(\.\d*[1-9])0+$/, "$1");
+
+      return `${compact}${unit.suffix}`;
+    }
+  }
+
+  return numberFormatter.format(value);
+}
+
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) {
     return value;
@@ -354,7 +378,9 @@ function getSectionLayout(weekCount: number) {
   const rightPadding = 20;
   const headerCaptionY = 0;
   const headerValueY = headerCaptionY + metricCaptionFontSize + captionValueGap;
-  const topMetricHeight = headerValueY + metricValueFontSize;
+  // Reserve room for optional cache helper lines under input/output.
+  const topMetricHeight =
+    headerValueY + metricValueFontSize + metricCaptionFontSize + 6;
   const topPadding = Math.max(providerTitleFontSize, topMetricHeight) + 20;
   const monthHeaderHeight = 20;
   const titleY = 0;
@@ -413,7 +439,9 @@ function drawHeatmapSection(
   const leftColumnX = x + 8;
   let maxValue = 0;
   let totalInputTokens = 0;
+  let totalCachedInputTokens = 0;
   let totalOutputTokens = 0;
+  let totalCachedOutputTokens = 0;
   let totalTokens = 0;
   let firstActivityOnlyDate: string | null = null;
   let firstMeasuredDate: string | null = null;
@@ -435,7 +463,9 @@ function drawHeatmapSection(
       firstMeasuredDate = dateKey;
     }
     totalInputTokens += row.input;
+    totalCachedInputTokens += row.cache.input;
     totalOutputTokens += row.output;
+    totalCachedOutputTokens += row.cache.output;
     totalTokens += row.total;
   }
 
@@ -447,6 +477,8 @@ function drawHeatmapSection(
   const totalOutputLabel = formatTokenTotal(totalOutputTokens);
   const longestStreak = insights?.streaks.longest ?? 0;
   const currentStreak = insights?.streaks.current ?? 0;
+  const cachedInputHelperLabel = `cache read ${formatTokenTotalDetailed(totalCachedInputTokens)}`;
+  const cachedOutputHelperLabel = `cache write ${formatTokenTotalDetailed(totalCachedOutputTokens)}`;
 
   if (titleCaption) {
     svg = svg.text(
@@ -517,6 +549,21 @@ function drawHeatmapSection(
     totalInputLabel,
   );
 
+  if (totalCachedInputTokens > 0) {
+    svg = svg.text(
+      {
+        x: headerInputX,
+        y: y + layout.headerValueY + metricValueFontSize + 6,
+        fill: palette.muted,
+        "font-size": metricCaptionFontSize,
+        "text-anchor": "end",
+        "dominant-baseline": "hanging",
+        "font-family": fontFamily,
+      },
+      cachedInputHelperLabel,
+    );
+  }
+
   svg = svg.text(
     {
       x: headerOutputX,
@@ -544,6 +591,21 @@ function drawHeatmapSection(
     },
     totalOutputLabel,
   );
+
+  if (totalCachedOutputTokens > 0) {
+    svg = svg.text(
+      {
+        x: headerOutputX,
+        y: y + layout.headerValueY + metricValueFontSize + 6,
+        fill: palette.muted,
+        "font-size": metricCaptionFontSize,
+        "text-anchor": "end",
+        "dominant-baseline": "hanging",
+        "font-family": fontFamily,
+      },
+      cachedOutputHelperLabel,
+    );
+  }
 
   svg = svg.text(
     {
