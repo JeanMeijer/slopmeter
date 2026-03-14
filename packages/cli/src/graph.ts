@@ -272,17 +272,6 @@ function formatTokenTotalDetailed(value: number) {
   return numberFormatter.format(value);
 }
 
-function formatPercent(part: number, whole: number) {
-  if (whole <= 0) {
-    return "0%";
-  }
-
-  const percent = (part / whole) * 100;
-  const precision = percent >= 10 ? 1 : 2;
-
-  return `${percent.toFixed(precision)}%`;
-}
-
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) {
     return value;
@@ -389,9 +378,9 @@ function getSectionLayout(weekCount: number) {
   const rightPadding = 20;
   const headerCaptionY = 0;
   const headerValueY = headerCaptionY + metricCaptionFontSize + captionValueGap;
-  // Reserve room for optional cache helper lines under total tokens.
+  // Reserve room for optional cache helper lines under input/output.
   const topMetricHeight =
-    headerValueY + metricValueFontSize + metricCaptionFontSize * 2 + 12;
+    headerValueY + metricValueFontSize + metricCaptionFontSize + 6;
   const topPadding = Math.max(providerTitleFontSize, topMetricHeight) + 20;
   const monthHeaderHeight = 20;
   const titleY = 0;
@@ -486,12 +475,10 @@ function drawHeatmapSection(
   const totalTokensLabel = formatTokenTotal(totalTokens);
   const totalInputLabel = formatTokenTotal(totalInputTokens);
   const totalOutputLabel = formatTokenTotal(totalOutputTokens);
-  const totalCachedOutputLabel = formatTokenTotal(totalCachedOutputTokens);
-  const totalCachedInputLabel = formatTokenTotal(totalCachedInputTokens);
   const longestStreak = insights?.streaks.longest ?? 0;
   const currentStreak = insights?.streaks.current ?? 0;
-  const cachedInputHelperLabel = `cache read ${formatTokenTotalDetailed(totalCachedInputTokens)} (${formatPercent(totalCachedInputTokens, totalTokens)} total)`;
-  const cachedOutputHelperLabel = `cache write ${formatTokenTotalDetailed(totalCachedOutputTokens)} (${formatPercent(totalCachedOutputTokens, totalTokens)} total)`;
+  const cachedInputHelperLabel = `cache read ${formatTokenTotalDetailed(totalCachedInputTokens)}`;
+  const cachedOutputHelperLabel = `cache write ${formatTokenTotalDetailed(totalCachedOutputTokens)}`;
 
   if (titleCaption) {
     svg = svg.text(
@@ -562,6 +549,21 @@ function drawHeatmapSection(
     totalInputLabel,
   );
 
+  if (totalCachedInputTokens > 0) {
+    svg = svg.text(
+      {
+        x: headerInputX,
+        y: y + layout.headerValueY + metricValueFontSize + 6,
+        fill: palette.muted,
+        "font-size": metricCaptionFontSize,
+        "text-anchor": "end",
+        "dominant-baseline": "hanging",
+        "font-family": fontFamily,
+      },
+      cachedInputHelperLabel,
+    );
+  }
+
   svg = svg.text(
     {
       x: headerOutputX,
@@ -590,6 +592,21 @@ function drawHeatmapSection(
     totalOutputLabel,
   );
 
+  if (totalCachedOutputTokens > 0) {
+    svg = svg.text(
+      {
+        x: headerOutputX,
+        y: y + layout.headerValueY + metricValueFontSize + 6,
+        fill: palette.muted,
+        "font-size": metricCaptionFontSize,
+        "text-anchor": "end",
+        "dominant-baseline": "hanging",
+        "font-family": fontFamily,
+      },
+      cachedOutputHelperLabel,
+    );
+  }
+
   svg = svg.text(
     {
       x: rightEdge,
@@ -617,36 +634,6 @@ function drawHeatmapSection(
     },
     totalTokensLabel,
   );
-
-  if (totalCachedInputTokens > 0) {
-    svg = svg.text(
-      {
-        x: rightEdge,
-        y: y + layout.headerValueY + metricValueFontSize + 6,
-        fill: palette.muted,
-        "font-size": metricCaptionFontSize,
-        "text-anchor": "end",
-        "dominant-baseline": "hanging",
-        "font-family": fontFamily,
-      },
-      cachedInputHelperLabel,
-    );
-  }
-
-  if (totalCachedOutputTokens > 0) {
-    svg = svg.text(
-      {
-        x: rightEdge,
-        y: y + layout.headerValueY + metricValueFontSize + metricCaptionFontSize + 10,
-        fill: palette.muted,
-        "font-size": metricCaptionFontSize,
-        "text-anchor": "end",
-        "dominant-baseline": "hanging",
-        "font-family": fontFamily,
-      },
-      cachedOutputHelperLabel,
-    );
-  }
 
   for (let i = 0; i < 7; i += 1) {
     const dayY =

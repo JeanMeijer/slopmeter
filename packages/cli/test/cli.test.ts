@@ -898,9 +898,9 @@ test("Heatmap header shows cached metrics when cache tokens are present", () => 
 
   assert.match(svg, /INPUT TOKENS/);
   assert.match(svg, />120</);
-  assert.match(svg, /TOTAL TOKENS/);
-  assert.match(svg, /cache read 80 \(50\.0% total\)/);
-  assert.match(svg, /cache write 12 \(7\.5% total\)/);
+  assert.match(svg, /cache read 80/);
+  assert.match(svg, /OUTPUT TOKENS/);
+  assert.match(svg, /cache write 12/);
 });
 
 test("Claude falls back to stats-cache.json for older layouts without double counting project logs", async (t) => {
