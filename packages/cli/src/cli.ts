@@ -344,6 +344,7 @@ async function main() {
         endDate: end,
         colorMode,
         sections: exportProviders.map(({ provider, daily, insights }) => ({
+          providerId: provider,
           daily,
           insights,
           title:

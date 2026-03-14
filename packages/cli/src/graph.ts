@@ -43,6 +43,7 @@ interface DrawHeatmapSectionOptions {
   y: number;
   grid: CalendarGrid;
   layout: SectionLayout;
+  providerId: HeatmapThemeId;
   daily: DailyUsage[];
   insights?: Insights;
   title: string;
@@ -53,6 +54,7 @@ interface DrawHeatmapSectionOptions {
 }
 
 interface RenderUsageHeatmapsSvgSection {
+  providerId: HeatmapThemeId;
   daily: DailyUsage[];
   insights?: Insights;
   title: string;
@@ -399,6 +401,7 @@ function drawHeatmapSection(
     y,
     grid,
     layout,
+    providerId,
     daily,
     insights,
     title,
@@ -438,9 +441,16 @@ function drawHeatmapSection(
     ) {
       firstMeasuredDate = dateKey;
     }
-    totalInputTokens += row.input;
+    const displayedInput =
+      providerId === "cursor"
+        ? row.input - row.cache.input - row.cache.output
+        : row.input - row.cache.input;
+    const displayedOutput =
+      providerId === "claude" ? row.output - row.cache.output : row.output;
+
+    totalInputTokens += Math.max(displayedInput, 0);
     totalCachedInputTokens += row.cache.input;
-    totalOutputTokens += row.output;
+    totalOutputTokens += Math.max(displayedOutput, 0);
     totalCachedOutputTokens += row.cache.output;
     totalTokens += row.total;
   }
@@ -910,6 +920,7 @@ export function renderUsageHeatmapsSvg({
       y: sectionY,
       grid,
       layout,
+      providerId: section.providerId,
       daily: section.daily,
       insights: section.insights,
       title: section.title,

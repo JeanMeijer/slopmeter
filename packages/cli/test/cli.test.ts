@@ -880,6 +880,7 @@ test("Heatmap header shows cached metrics when cache tokens are present", () => 
     colorMode: "light",
     sections: [
       {
+        providerId: "codex",
         title: "Codex",
         colors: heatmapThemes.codex.colors,
         daily: [
@@ -897,7 +898,7 @@ test("Heatmap header shows cached metrics when cache tokens are present", () => 
   });
 
   assert.match(svg, /CACHED INPUT/);
-  assert.match(svg, />80</);
+  assert.match(svg, />40</);
   assert.match(svg, /write 12/);
 });
 
