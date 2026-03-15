@@ -6,10 +6,17 @@ import {
   providerIds,
   providerStatusLabel,
   type ProviderId,
+  type Granularity,
 } from "./lib/interfaces";
 import { loadOpenCodeRows } from "./lib/open-code";
 import { loadPiRows } from "./lib/pi";
-import { hasUsage, mergeUsageSummaries } from "./lib/utils";
+import {
+  hasUsage,
+  mergeUsageSummaries,
+  setDateKeyFn,
+  formatLocalDate,
+  formatLocalHour,
+} from "./lib/utils";
 
 export { providerIds, providerStatusLabel, type ProviderId };
 
@@ -17,6 +24,7 @@ interface AggregateUsageOptions {
   start: Date;
   end: Date;
   requestedProviders?: ProviderId[];
+  granularity?: Granularity;
 }
 
 export interface AggregateUsageResult {
@@ -43,7 +51,10 @@ export async function aggregateUsage({
   start,
   end,
   requestedProviders,
+  granularity = "day",
 }: AggregateUsageOptions): Promise<AggregateUsageResult> {
+  setDateKeyFn(granularity === "hour" ? formatLocalHour : formatLocalDate);
+
   const providersToLoad = requestedProviders?.length
     ? requestedProviders
     : providerIds;

@@ -11,6 +11,35 @@ export function formatLocalDate(date: Date) {
   return `${y}-${m}-${d}`;
 }
 
+export function formatLocalHour(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const h = String(date.getHours()).padStart(2, "0");
+
+  return `${y}-${m}-${d}T${h}`;
+}
+
+function parseTimeKey(key: string): Date {
+  if (key.includes("T")) {
+    return new Date(`${key}:00:00`);
+  }
+
+  return new Date(`${key}T00:00:00`);
+}
+
+export type DateKeyFn = (date: Date) => string;
+
+let _dateKeyFn: DateKeyFn = formatLocalDate;
+
+export function setDateKeyFn(fn: DateKeyFn) {
+  _dateKeyFn = fn;
+}
+
+export function getDateKeyFn(): DateKeyFn {
+  return _dateKeyFn;
+}
+
 export interface DailyTokenTotals {
   input: number;
   output: number;
@@ -130,7 +159,7 @@ export function addDailyTokenTotals(
   tokenTotals: DailyTokenTotals,
   modelName?: string,
 ) {
-  const key = formatLocalDate(date);
+  const key = _dateKeyFn(date);
   const existing = totals.get(key);
 
   if (!existing) {
@@ -213,7 +242,7 @@ export function totalsToRows(
         tokens.total > 0 ? tokens.total : (displayValuesByDate.get(date) ?? 0);
 
       return {
-        date: new Date(`${date}T00:00:00`),
+        date: parseTimeKey(date),
         input: tokens.input,
         output: tokens.output,
         cache: { input: tokens.cache.input, output: tokens.cache.output },
@@ -745,6 +774,22 @@ export function computeCurrentStreak(daily: DailyUsage[], end: Date): number {
   return current;
 }
 
+function deduplicateByDay(daily: DailyUsage[]): DailyUsage[] {
+  const seen = new Set<string>();
+
+  return daily.filter((row) => {
+    const key = formatLocalDate(row.date);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+
+    return true;
+  });
+}
+
 export function getProviderInsights(
   modelTotals: Map<string, ModelTokenTotals>,
   recentModelTotals: Map<string, ModelTokenTotals>,
@@ -756,13 +801,14 @@ export function getProviderInsights(
   const measuredDaily = daily.filter(
     (row) => (row.displayValue ?? row.total) > 0,
   );
+  const dayDeduped = deduplicateByDay(measuredDaily);
 
   return {
     mostUsedModel,
     recentMostUsedModel,
     streaks: {
-      longest: computeLongestStreak(measuredDaily),
-      current: computeCurrentStreak(measuredDaily, end),
+      longest: computeLongestStreak(dayDeduped),
+      current: computeCurrentStreak(dayDeduped, end),
     },
   };
 }
@@ -810,7 +856,7 @@ export function mergeUsageSummaries(
         total: row.total,
       });
 
-      const dateKey = formatLocalDate(row.date);
+      const dateKey = _dateKeyFn(row.date);
       const displayValue = row.displayValue ?? row.total;
 
       if (displayValue > 0) {

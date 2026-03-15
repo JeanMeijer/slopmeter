@@ -1,7 +1,7 @@
 import svgBuilder, { type SVGBuilderInstance } from "svg-builder";
 import type { DailyUsage, Insights, ModelUsage } from "./interfaces";
-import type { ProviderId } from "./lib/interfaces";
-import { formatLocalDate } from "./lib/utils";
+import type { Granularity, ProviderId } from "./lib/interfaces";
+import { formatLocalDate, formatLocalHour } from "./lib/utils";
 
 type HeatmapThemeId = ProviderId | "all";
 
@@ -19,6 +19,11 @@ export type ColorMode = "light" | "dark";
 interface CalendarGrid {
   weeks: (string | null)[][];
   monthLabels: (string | null)[];
+  rowCount: number;
+  rowLabels: (string | null)[];
+  cellSize: number;
+  gap: number;
+  granularity: Granularity;
 }
 
 interface SectionLayout {
@@ -70,6 +75,7 @@ interface RenderUsageHeatmapsSvgOptions {
   endDate: Date;
   sections: RenderUsageHeatmapsSvgSection[];
   colorMode: ColorMode;
+  granularity?: Granularity;
 }
 
 interface SurfacePalette {
@@ -326,13 +332,15 @@ function defaultColourMap(value: number, max: number, colorCount: number) {
 }
 
 function formatShortDate(dateIso: string) {
-  return new Date(`${dateIso}T00:00:00`).toLocaleString("en-US", {
+  const datePart = dateIso.includes("T") ? dateIso.substring(0, 10) : dateIso;
+
+  return new Date(`${datePart}T00:00:00`).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
   });
 }
 
-function getCalendarGrid(startDate: Date, endDate: Date) {
+function getCalendarGrid(startDate: Date, endDate: Date): CalendarGrid {
   const allDays = getAllDays(startDate, endDate);
   const paddedDays = padToWeekStartMonday(allDays);
   const weeks = chunkByWeek(paddedDays);
@@ -344,13 +352,85 @@ function getCalendarGrid(startDate: Date, endDate: Date) {
     return label !== prevLabel ? label : null;
   });
 
-  return { weeks, monthLabels };
+  const rowLabels: (string | null)[] = daysOfWeekMonday.map((label, i) =>
+    i === 0 || i === 6 ? label : null,
+  );
+
+  return {
+    weeks,
+    monthLabels,
+    rowCount: 7,
+    rowLabels,
+    cellSize: 11,
+    gap: 2,
+    granularity: "day",
+  };
 }
 
-function getSectionLayout(weekCount: number) {
-  const cellSize = 11;
-  const gap = 2;
-  const leftLabelWidth = 34;
+function formatHourLabel(hour: number): string {
+  if (hour === 0) {
+    return "12a";
+  }
+
+  if (hour < 12) {
+    return `${hour}a`;
+  }
+
+  if (hour === 12) {
+    return "12p";
+  }
+
+  return `${hour - 12}p`;
+}
+
+function getHourlyGrid(startDate: Date, endDate: Date): CalendarGrid {
+  const allDays = getAllDays(startDate, endDate);
+
+  // columns = 24 hours, rows = days
+  const weeks: (string | null)[][] = [];
+
+  for (let hour = 0; hour < 24; hour += 1) {
+    const column: (string | null)[] = [];
+
+    for (const day of allDays) {
+      column.push(`${day}T${String(hour).padStart(2, "0")}`);
+    }
+
+    weeks.push(column);
+  }
+
+  const monthLabels: (string | null)[] = [];
+
+  for (let hour = 0; hour < 24; hour += 1) {
+    monthLabels.push(hour % 3 === 0 ? formatHourLabel(hour) : null);
+  }
+
+  const rowLabels: (string | null)[] = allDays.map((day) => {
+    const d = new Date(`${day}T00:00:00`);
+    const weekday = d.toLocaleString("en-US", { weekday: "short" });
+    const monthDay = d.toLocaleString("en-US", { month: "numeric", day: "numeric" });
+
+    return `${weekday} ${monthDay}`;
+  });
+
+  return {
+    weeks,
+    monthLabels,
+    rowCount: allDays.length,
+    rowLabels,
+    cellSize: 26,
+    gap: 2,
+    granularity: "hour",
+  };
+}
+
+function getSectionLayout(
+  weekCount: number,
+  rowCount = 7,
+  cellSize = 11,
+  gap = 2,
+) {
+  const leftLabelWidth = rowCount > 7 ? 54 : 34;
   const rightPadding = 20;
   const headerCaptionY = 0;
   const headerValueY = headerCaptionY + metricCaptionFontSize + captionValueGap;
@@ -360,7 +440,7 @@ function getSectionLayout(weekCount: number) {
   const titleY = 0;
   const monthLabelY = topPadding + 4;
   const gridTop = topPadding + monthHeaderHeight;
-  const gridHeight = 7 * cellSize + 6 * gap;
+  const gridHeight = rowCount * cellSize + Math.max(rowCount - 1, 0) * gap;
   const gridWidth = weekCount * cellSize + Math.max(weekCount - 1, 0) * gap;
   const legendY = gridTop + gridHeight + 28;
   const legendBottomY = legendY + cellSize;
@@ -418,8 +498,10 @@ function drawHeatmapSection(
   let firstActivityOnlyDate: string | null = null;
   let firstMeasuredDate: string | null = null;
 
+  const keyFn = grid.granularity === "hour" ? formatLocalHour : formatLocalDate;
+
   for (const row of daily) {
-    const dateKey = formatLocalDate(row.date);
+    const dateKey = keyFn(row.date);
     const displayValue = row.displayValue ?? row.total;
 
     valueByDate.set(dateKey, displayValue);
@@ -573,27 +655,29 @@ function drawHeatmapSection(
     totalTokensLabel,
   );
 
-  for (let i = 0; i < 7; i += 1) {
+  for (let i = 0; i < grid.rowCount; i += 1) {
     const dayY =
       y +
       layout.gridTop +
       i * (layout.cellSize + layout.gap) +
       layout.cellSize / 2;
 
-    const dayLabel = i === 0 || i === 6 ? daysOfWeekMonday[i] : "";
+    const dayLabel = grid.rowLabels[i] ?? "";
 
-    svg = svg.text(
-      {
-        x: x + layout.leftLabelWidth - 6,
-        y: dayY,
-        fill: palette.muted,
-        "font-size": 10,
-        "text-anchor": "end",
-        "dominant-baseline": "middle",
-        "font-family": fontFamily,
-      },
-      dayLabel,
-    );
+    if (dayLabel) {
+      svg = svg.text(
+        {
+          x: x + layout.leftLabelWidth - 6,
+          y: dayY,
+          fill: palette.muted,
+          "font-size": 10,
+          "text-anchor": "end",
+          "dominant-baseline": "middle",
+          "font-family": fontFamily,
+        },
+        dayLabel,
+      );
+    }
   }
 
   for (let weekIndex = 0; weekIndex < grid.weeks.length; weekIndex += 1) {
@@ -693,7 +777,7 @@ function drawHeatmapSection(
 
   if (firstActivityOnlyDate && firstMeasuredDate) {
     const noteX = x + layout.width / 2;
-    const noteY = y + layout.gridTop + 7 * layout.cellSize + 6 * layout.gap + 8;
+    const noteY = y + layout.gridTop + grid.rowCount * layout.cellSize + (grid.rowCount - 1) * layout.gap + 8;
 
     svg = svg.text(
       {
@@ -821,9 +905,18 @@ export function renderUsageHeatmapsSvg({
   endDate,
   sections,
   colorMode,
+  granularity = "day",
 }: RenderUsageHeatmapsSvgOptions) {
-  const grid = getCalendarGrid(startDate, endDate);
-  const layout = getSectionLayout(grid.weeks.length);
+  const grid =
+    granularity === "hour"
+      ? getHourlyGrid(startDate, endDate)
+      : getCalendarGrid(startDate, endDate);
+  const layout = getSectionLayout(
+    grid.weeks.length,
+    grid.rowCount,
+    grid.cellSize,
+    grid.gap,
+  );
   const palette = surfacePalettes[colorMode];
   const horizontalPadding = 18;
   const topPadding = 30;

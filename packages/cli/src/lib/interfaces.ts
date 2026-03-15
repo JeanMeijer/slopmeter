@@ -1,4 +1,5 @@
 export type ProviderId = "claude" | "codex" | "cursor" | "opencode" | "pi";
+export type Granularity = "day" | "hour";
 
 export const providerIds: ProviderId[] = [
   "claude",

@@ -11,8 +11,9 @@ import type {
   UsageSummary,
   UsageProviderId,
 } from "./interfaces";
+import type { Granularity } from "./lib/interfaces";
 import type { ProviderId } from "./providers";
-import { formatLocalDate } from "./lib/utils";
+import { formatLocalDate, formatLocalHour } from "./lib/utils";
 import {
   aggregateUsage,
   mergeProviderUsage,
@@ -24,6 +25,7 @@ type OutputFormat = "png" | "svg" | "json";
 interface CliArgValues {
   output?: string;
   format?: string;
+  days?: string;
   help: boolean;
   dark: boolean;
   all: boolean;
@@ -41,10 +43,10 @@ const JSON_EXPORT_VERSION = "2026-03-03";
 
 const HELP_TEXT = `slopmeter
 
-Generate rolling 1-year usage heatmap image(s) (today is the latest day).
+Generate rolling usage heatmap image(s) (today is the latest day).
 
 Usage:
-  slopmeter [--all] [--claude] [--codex] [--cursor] [--opencode] [--pi] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
+  slopmeter [--all] [--claude] [--codex] [--cursor] [--opencode] [--pi] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png] [--days N]
 
 Options:
   --all                       Render one merged graph for all providers
@@ -54,6 +56,7 @@ Options:
   --opencode                  Render Open Code graph
   --pi                        Render Pi Coding Agent graph
   --dark                      Render with the dark theme
+  -d, --days                  Number of days to look back (default: 365)
   -f, --format                Output format: png, svg, or json (default: png)
   -o, --output                Output file path (default: ./heatmap-last-year.png)
   -h, --help                  Show this help
@@ -69,6 +72,7 @@ function validateArgs(values: unknown): asserts values is CliArgValues {
     ow.object.exactShape({
       output: ow.optional.string.nonEmpty,
       format: ow.optional.string.nonEmpty,
+      days: ow.optional.string.nonEmpty,
       help: ow.boolean,
       dark: ow.boolean,
       all: ow.boolean,
@@ -131,12 +135,17 @@ function writeOutputJson(outputPath: string, payload: JsonExportPayload) {
   writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
-function toJsonUsageSummary(summary: UsageSummary): JsonUsageSummary {
+function toJsonUsageSummary(
+  summary: UsageSummary,
+  granularity: Granularity,
+): JsonUsageSummary {
+  const dateFn = granularity === "hour" ? formatLocalHour : formatLocalDate;
+
   return {
     provider: summary.provider,
     insights: summary.insights,
     daily: summary.daily.map((row) => ({
-      date: formatLocalDate(row.date),
+      date: dateFn(row.date),
       input: row.input,
       output: row.output,
       cache: row.cache,
@@ -147,15 +156,20 @@ function toJsonUsageSummary(summary: UsageSummary): JsonUsageSummary {
   };
 }
 
-function getDateWindow() {
-  const start = new Date();
-
-  start.setHours(0, 0, 0, 0);
-  start.setFullYear(start.getFullYear() - 1);
-
+function getDateWindow(days?: number) {
   const end = new Date();
 
   end.setHours(23, 59, 59, 999);
+
+  const start = new Date();
+
+  start.setHours(0, 0, 0, 0);
+
+  if (days !== undefined) {
+    start.setDate(start.getDate() - days);
+  } else {
+    start.setFullYear(start.getFullYear() - 1);
+  }
 
   return { start, end };
 }
@@ -264,6 +278,7 @@ async function main() {
     options: {
       output: { type: "string", short: "o" },
       format: { type: "string", short: "f" },
+      days: { type: "string", short: "d" },
       help: { type: "boolean", short: "h", default: false },
       dark: { type: "boolean", default: false },
       all: { type: "boolean", default: false },
@@ -292,7 +307,15 @@ async function main() {
       spinner: "dots",
     }).start();
 
-    const { start, end } = getDateWindow();
+    const daysBack = values.days !== undefined ? Number(values.days) : undefined;
+
+    if (daysBack !== undefined && (!Number.isInteger(daysBack) || daysBack < 1)) {
+      throw new Error("--days must be a positive integer");
+    }
+
+    const granularity: Granularity =
+      daysBack !== undefined && daysBack <= 21 ? "hour" : "day";
+    const { start, end } = getDateWindow(daysBack);
     const colorMode: ColorMode = values.dark ? "dark" : "light";
     const format = inferFormat(values.format, values.output);
     const requestedProviders = values.all
@@ -304,6 +327,7 @@ async function main() {
       start,
       end,
       requestedProviders,
+      granularity,
     });
 
     spinner.stop();
@@ -330,7 +354,7 @@ async function main() {
         start: formatLocalDate(start),
         end: formatLocalDate(end),
         providers: exportProviders.map((provider) =>
-          toJsonUsageSummary(provider),
+          toJsonUsageSummary(provider, granularity),
         ),
       };
 
@@ -343,6 +367,7 @@ async function main() {
         startDate: start,
         endDate: end,
         colorMode,
+        granularity,
         sections: exportProviders.map(({ provider, daily, insights }) => ({
           daily,
           insights,
