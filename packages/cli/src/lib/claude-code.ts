@@ -12,6 +12,7 @@ import {
   addModelTokenTotals,
   createUsageSummary,
   formatLocalDate,
+  getDateKeyFn,
   getPositiveIntegerEnv,
   getRecentWindowStart,
   listFilesRecursive,
@@ -381,7 +382,7 @@ async function loadClaudeHistoryDisplayValues(
         continue;
       }
 
-      const dateKey = formatLocalDate(timestamp);
+      const dateKey = getDateKeyFn()(timestamp);
 
       if (coveredDates.has(dateKey)) {
         continue;
