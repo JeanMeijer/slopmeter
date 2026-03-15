@@ -13,7 +13,7 @@ import type {
 } from "./interfaces";
 import type { Granularity } from "./lib/interfaces";
 import type { ProviderId } from "./providers";
-import { formatLocalDate } from "./lib/utils";
+import { formatLocalDate, formatLocalHour } from "./lib/utils";
 import {
   aggregateUsage,
   mergeProviderUsage,
@@ -135,12 +135,17 @@ function writeOutputJson(outputPath: string, payload: JsonExportPayload) {
   writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
-function toJsonUsageSummary(summary: UsageSummary): JsonUsageSummary {
+function toJsonUsageSummary(
+  summary: UsageSummary,
+  granularity: Granularity,
+): JsonUsageSummary {
+  const dateFn = granularity === "hour" ? formatLocalHour : formatLocalDate;
+
   return {
     provider: summary.provider,
     insights: summary.insights,
     daily: summary.daily.map((row) => ({
-      date: formatLocalDate(row.date),
+      date: dateFn(row.date),
       input: row.input,
       output: row.output,
       cache: row.cache,
@@ -302,9 +307,9 @@ async function main() {
       spinner: "dots",
     }).start();
 
-    const daysBack = values.days !== undefined ? parseInt(values.days, 10) : undefined;
+    const daysBack = values.days !== undefined ? Number(values.days) : undefined;
 
-    if (daysBack !== undefined && (isNaN(daysBack) || daysBack < 1)) {
+    if (daysBack !== undefined && (!Number.isInteger(daysBack) || daysBack < 1)) {
       throw new Error("--days must be a positive integer");
     }
 
@@ -349,7 +354,7 @@ async function main() {
         start: formatLocalDate(start),
         end: formatLocalDate(end),
         providers: exportProviders.map((provider) =>
-          toJsonUsageSummary(provider),
+          toJsonUsageSummary(provider, granularity),
         ),
       };
 
