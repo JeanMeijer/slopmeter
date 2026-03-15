@@ -35,6 +35,7 @@ interface AmpMessageUsage {
 interface AmpMessage {
   role?: string;
   usage?: AmpMessageUsage;
+  meta?: { sentAt?: number };
 }
 
 interface AmpThread {
@@ -102,18 +103,26 @@ async function processAmpFile(
     return { totals, modelTotals, recentModelTotals };
   }
 
-  if (!thread.created || !thread.messages) {
+  if (!thread.messages) {
     return { totals, modelTotals, recentModelTotals };
   }
 
-  const threadDate = new Date(thread.created);
-
-  if (threadDate < start || threadDate > end) {
-    return { totals, modelTotals, recentModelTotals };
-  }
+  const threadDate = thread.created ? new Date(thread.created) : null;
+  let lastUserTimestamp: Date | null = null;
 
   for (const message of thread.messages) {
+    if (message.role === "user" && message.meta?.sentAt) {
+      lastUserTimestamp = new Date(message.meta.sentAt);
+      continue;
+    }
+
     if (message.role !== "assistant" || !message.usage) {
+      continue;
+    }
+
+    const date = lastUserTimestamp ?? threadDate;
+
+    if (!date || date < start || date > end) {
       continue;
     }
 
@@ -127,7 +136,7 @@ async function processAmpFile(
       ? normalizeModelName(message.usage.model)
       : undefined;
 
-    addDailyTokenTotals(totals, threadDate, tokenTotals, modelName);
+    addDailyTokenTotals(totals, date, tokenTotals, modelName);
 
     if (!modelName) {
       continue;
@@ -135,7 +144,7 @@ async function processAmpFile(
 
     addModelTokenTotals(modelTotals, modelName, tokenTotals);
 
-    if (threadDate >= recentStart) {
+    if (date >= recentStart) {
       addModelTokenTotals(recentModelTotals, modelName, tokenTotals);
     }
   }
