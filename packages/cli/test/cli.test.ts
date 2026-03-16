@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { heatmapThemes, renderUsageHeatmapsSvg } from "../src/graph";
 import { summarizeCursorUsageCsv } from "../src/lib/cursor";
 
 const cliPath = resolve(import.meta.dirname, "../dist/cli.js");
@@ -868,6 +869,38 @@ test("Cursor streams CSV rows without buffering the full export", async () => {
       },
     ],
   );
+});
+
+test("Heatmap header shows cached metrics when cache tokens are present", () => {
+  const startDate = new Date(`${recentDate(6)}T00:00:00`);
+  const endDate = new Date(`${recentDate(0)}T23:59:59.999`);
+  const svg = renderUsageHeatmapsSvg({
+    startDate,
+    endDate,
+    colorMode: "light",
+    sections: [
+      {
+        title: "Codex",
+        colors: heatmapThemes.codex.colors,
+        daily: [
+          {
+            date: new Date(`${recentDate(1)}T00:00:00`),
+            input: 120,
+            output: 40,
+            cache: { input: 80, output: 12 },
+            total: 160,
+            breakdown: [],
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.match(svg, /INPUT TOKENS/);
+  assert.match(svg, />120</);
+  assert.match(svg, /cache read 80/);
+  assert.match(svg, /OUTPUT TOKENS/);
+  assert.match(svg, /cache write 12/);
 });
 
 test("Claude falls back to stats-cache.json for older layouts without double counting project logs", async (t) => {

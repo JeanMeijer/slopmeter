@@ -69,7 +69,9 @@ slopmeter --pi
 - Top metrics per provider:
   - `LAST 30 DAYS`
   - `INPUT TOKENS`
+  - cache reads are shown under `INPUT TOKENS` when available
   - `OUTPUT TOKENS`
+  - cache writes are shown under `OUTPUT TOKENS` when available
   - `TOTAL TOKENS` (includes cache tokens)
 - Bottom metrics per provider:
   - `MOST USED MODEL` (with total tokens)
