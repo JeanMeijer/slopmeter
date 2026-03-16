@@ -7,17 +7,21 @@ import {
 
 function createValues(overrides?: Partial<{
   all: boolean;
+  amp: boolean;
   claude: boolean;
   codex: boolean;
   cursor: boolean;
+  gemini: boolean;
   opencode: boolean;
   pi: boolean;
 }>) {
   return {
     all: false,
+    amp: false,
     claude: false,
     codex: false,
     cursor: false,
+    gemini: false,
     opencode: false,
     pi: false,
     ...overrides,
@@ -58,8 +62,8 @@ test("default output path reflects multiple explicit provider flags", () => {
 test("default output suffix follows provider flag order", () => {
   assert.equal(
     getDefaultOutputSuffix(
-      createValues({ pi: true, claude: true, opencode: true }),
+      createValues({ pi: true, gemini: true, amp: true, opencode: true }),
     ),
-    "_claude_opencode_pi",
+    "_amp_gemini_opencode_pi",
   );
 });
