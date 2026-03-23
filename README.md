@@ -86,7 +86,7 @@ Model names are normalized to remove a trailing date suffix like `-20251101`.
 ## Format behavior
 
 - Default format is PNG.
-- If `--output` is omitted, the default filename is `heatmap-last-year.<ext>`, `heatmap-last-year_<providers>.<ext>` for explicit provider flags, or `heatmap-last-year_all.<ext>` for `--all`.
+- If `--output` is omitted, the default filename is `./heatmap-last-year.<ext>`, `./heatmap-last-year_<providers>.<ext>` for explicit provider flags, or `./heatmap-last-year_all.<ext>` for `--all`.
 - If `--format` is omitted, format is inferred from `--output` extension (`.png`, `.svg`, or `.json`).
 - If neither provides a format, PNG is used.
 
