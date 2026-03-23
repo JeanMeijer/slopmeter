@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { UsageSummary } from "../interfaces";
@@ -52,6 +53,10 @@ function getPiAgentDir() {
 
 async function getPiSessionFiles() {
   return listFilesRecursive(join(getPiAgentDir(), "sessions"), ".jsonl");
+}
+
+export function isPiAvailable() {
+  return existsSync(join(getPiAgentDir(), "sessions"));
 }
 
 function classifyPiRecord(prefix: string): JsonlRecordDecision<void> {

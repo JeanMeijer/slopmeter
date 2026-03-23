@@ -1,6 +1,6 @@
 # slopmeter
 
-`slopmeter` is a Node.js CLI that scans local Claude Code, Codex, Crush, Cursor, Open Code, and Pi Coding Agent usage data and generates a contribution-style heatmap for the rolling past year.
+`slopmeter` is a Node.js CLI that scans local Amp, Claude Code, Codex, Crush, Cursor, Gemini CLI, Google Antigravity, Open Code, and Pi Coding Agent usage data and generates a contribution-style heatmap for the rolling past year.
 
 ## Requirements
 
@@ -24,7 +24,7 @@ slopmeter
 ## Usage
 
 ```bash
-slopmeter [--all] [--claude] [--codex] [--cursor] [--opencode] [--crush] [--pi] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
+slopmeter [--all] [--amp] [--antigravity] [--claude] [--codex] [--cursor] [--gemini] [--opencode] [--pi] [--crush] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
 ```
 
 By default, the CLI:
@@ -35,9 +35,12 @@ By default, the CLI:
 
 ## Options
 
+- `--amp`: include only Amp data
+- `--antigravity`: include only Google Antigravity data
 - `--claude`: include only Claude Code data
 - `--codex`: include only Codex data
 - `--cursor`: include only Cursor data
+- `--gemini`: include only Gemini CLI data
 - `--opencode`: include only Open Code data
 - `--crush`: include only Crush data
 - `--pi`: include only Pi Coding Agent data
@@ -79,6 +82,12 @@ Render only Cursor usage:
 npx slopmeter --cursor
 ```
 
+Render only Gemini CLI usage:
+
+```bash
+npx slopmeter --gemini
+```
+
 Render only Pi Coding Agent usage:
 
 ```bash
@@ -102,6 +111,7 @@ npx slopmeter --dark --format svg --output ./out/heatmap-dark.svg
 ## Output behavior
 
 - If `--format` is omitted, the format is inferred from the `--output` extension when possible.
+- If `--output` is omitted, the default filename becomes `heatmap-last-year.<ext>`, `heatmap-last-year_<providers>.<ext>` for explicit provider flags, or `heatmap-last-year_all.<ext>` for `--all`.
 - Supported extensions are `.png`, `.svg`, and `.json`.
 - If neither `--format` nor a recognized output extension is provided, PNG is used.
 
@@ -113,8 +123,13 @@ npx slopmeter --dark --format svg --output ./out/heatmap-dark.svg
 - Codex: `$CODEX_HOME/sessions` or `~/.codex/sessions`
 - Crush: reads `crush.db` from the current workspace `./.crush`, `~/.crush`, tracked Crush project data dirs listed in global `projects.json`, the global data dir itself, and project-local `.crush/crush.db` files discovered under `HOME` when Crush has not tracked them yet. The global metadata dir is discovered from `$CRUSH_GLOBAL_DATA`, `$XDG_DATA_HOME/crush`, `%LOCALAPPDATA%\\crush`, or `~/.local/share/crush`
 - Cursor: reads `cursorAuth/accessToken` and `cursorAuth/refreshToken` from `$CURSOR_STATE_DB_PATH`, `$CURSOR_CONFIG_DIR/User/globalStorage/state.vscdb`, `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` (macOS), `%APPDATA%/Cursor/User/globalStorage/state.vscdb` (Windows), or `~/.config/Cursor/User/globalStorage/state.vscdb` (Linux), then loads usage from Cursor's CSV export endpoint
+- Gemini CLI: `$GEMINI_CONFIG_DIR/tmp/**/chats/session-*.json` or `~/.gemini/tmp/**/chats/session-*.json`
 - Open Code: prefers `$OPENCODE_DATA_DIR/opencode.db` or `~/.local/share/opencode/opencode.db`, and falls back to `$OPENCODE_DATA_DIR/storage/message` or `~/.local/share/opencode/storage/message`
 - Pi Coding Agent: `$PI_CODING_AGENT_DIR/sessions` or `~/.pi/agent/sessions`
+- Amp: `$AMP_DATA_DIR/threads` or `~/.amp/threads`
+- Google Antigravity logs: `$ANTIGRAVITY_LOGS_DIR` or `~/Library/Application Support/Antigravity/logs` (macOS), `%APPDATA%\Antigravity\logs` (Windows), or `$XDG_CONFIG_HOME/Antigravity/logs` / `~/.config/Antigravity/logs` (Linux)
+- Google Antigravity synced state: `$ANTIGRAVITY_STATE_DB` or platform-specific `Antigravity/User/globalStorage/state.vscdb`
+- Google Antigravity local data: `$ANTIGRAVITY_DATA_DIR` or `~/.gemini/antigravity`
 
 When Claude Code falls back to `stats-cache.json`, the daily input/output/cache split is reconstructed from Claude's cached model totals because the older layout does not keep per-request usage logs.
 When Claude Code falls back to `history.jsonl`, those days are rendered as activity-only cells and do not affect the token totals shown in the header.
@@ -129,7 +144,7 @@ When Claude Code falls back to `history.jsonl`, those days are rendered as activ
 
 ## Environment variables
 
-- `SLOPMETER_FILE_PROCESS_CONCURRENCY`: positive integer file-processing limit for Claude Code and Codex JSONL files. Default: `4`.
+- `SLOPMETER_FILE_PROCESS_CONCURRENCY`: positive integer file-processing limit for Claude Code and Codex JSONL files. Default: `16`.
 - `SLOPMETER_MAX_JSONL_RECORD_BYTES`: byte cap for Claude Code and Codex JSONL records, OpenCode JSON documents, and OpenCode SQLite `message.data` payloads. Default: `67108864` (`64 MB`).
 
 ## JSONL record handling

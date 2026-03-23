@@ -410,6 +410,12 @@ async function loadCrushUsageRows(databasePath: string, recentWindowStart: numbe
   }
 }
 
+export async function isCrushAvailable() {
+  const paths = await getCrushDatabasePaths();
+
+  return paths.length > 0;
+}
+
 export async function loadCrushRows(
   start: Date,
   end: Date,

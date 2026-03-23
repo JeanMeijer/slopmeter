@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { UsageSummary } from "../interfaces";
@@ -203,12 +204,20 @@ function extractCodexModel(payload?: CodexEventPayload) {
   return undefined;
 }
 
+function getCodexHome() {
+  const trimmed = process.env.CODEX_HOME?.trim();
+
+  return trimmed ? resolve(trimmed) : join(homedir(), ".codex");
+}
+
 async function getCodexFiles() {
-  const codexHome = process.env.CODEX_HOME?.trim()
-    ? resolve(process.env.CODEX_HOME)
-    : join(homedir(), ".codex");
+  const codexHome = getCodexHome();
 
   return listFilesRecursive(join(codexHome, "sessions"), ".jsonl");
+}
+
+export function isCodexAvailable() {
+  return existsSync(join(getCodexHome(), "sessions"));
 }
 
 function readJsonString(source: string, start: number) {

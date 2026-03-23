@@ -11,10 +11,13 @@ import type {
   UsageSummary,
   UsageProviderId,
 } from "./interfaces";
+import { getDefaultOutputPath } from "./output-path";
 import type { ProviderId } from "./providers";
 import { formatLocalDate } from "./lib/utils";
 import {
   aggregateUsage,
+  defaultProviderIds,
+  getProviderAvailability,
   mergeProviderUsage,
   providerIds,
   providerStatusLabel,
@@ -27,37 +30,43 @@ interface CliArgValues {
   help: boolean;
   dark: boolean;
   all: boolean;
+  amp: boolean;
   claude: boolean;
   codex: boolean;
   cursor: boolean;
+  gemini: boolean;
   opencode: boolean;
   pi: boolean;
   crush: boolean;
+  antigravity: boolean;
 }
 
 const PNG_BASE_WIDTH = 1000;
 const PNG_SCALE = 4;
 const PNG_RENDER_WIDTH = PNG_BASE_WIDTH * PNG_SCALE;
-const JSON_EXPORT_VERSION = "2026-03-11";
+const JSON_EXPORT_VERSION = "2026-03-13";
 
 const HELP_TEXT = `slopmeter
 
 Generate rolling 1-year usage heatmap image(s) (today is the latest day).
 
 Usage:
-  slopmeter [--all] [--claude] [--codex] [--cursor] [--opencode] [--pi] [--crush] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
+  slopmeter [--all] [--amp] [--claude] [--codex] [--cursor] [--gemini] [--opencode] [--pi] [--crush] [--antigravity] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
 
 Options:
   --all                       Render one merged graph for all providers
+  --amp                       Render Amp graph
   --claude                    Render Claude Code graph
   --codex                     Render Codex graph
   --cursor                    Render Cursor graph
+  --gemini                    Render Gemini CLI graph
   --opencode                  Render Open Code graph
   --pi                        Render Pi Coding Agent graph
   --crush                     Render Crush graph
+  --antigravity               Render Google Antigravity graph
   --dark                      Render with the dark theme
   -f, --format                Output format: png, svg, or json (default: png)
-  -o, --output                Output file path (default: ./heatmap-last-year.png)
+  -o, --output                Output file path (default: ./heatmap-last-year[_<providers>].png)
   -h, --help                  Show this help
 `;
 
@@ -74,12 +83,15 @@ function validateArgs(values: unknown): asserts values is CliArgValues {
       help: ow.boolean,
       dark: ow.boolean,
       all: ow.boolean,
+      amp: ow.boolean,
       claude: ow.boolean,
       codex: ow.boolean,
       cursor: ow.boolean,
+      gemini: ow.boolean,
       opencode: ow.boolean,
       pi: ow.boolean,
       crush: ow.boolean,
+      antigravity: ow.boolean,
     }),
   );
 }
@@ -164,13 +176,13 @@ function getDateWindow() {
 }
 
 function printProviderAvailability(
-  rowsByProvider: Record<ProviderId, UsageSummary | null>,
+  availabilityByProvider: Record<ProviderId, boolean>,
   providers: ProviderId[],
 ) {
   for (const provider of providers) {
-    const found = rowsByProvider[provider] ? "found" : "not found";
+    const status = availabilityByProvider[provider] ? "available" : "not available";
 
-    process.stdout.write(`${providerStatusLabel[provider]} ${found}\n`);
+    process.stdout.write(`${providerStatusLabel[provider]} ${status}\n`);
   }
 }
 
@@ -178,13 +190,30 @@ function getRequestedProviders(values: CliArgValues) {
   return providerIds.filter((id) => values[id]);
 }
 
+function getMergedNoDataMessage() {
+  const labels = providerIds.map((id) => providerStatusLabel[id]);
+  const last = labels.pop();
+
+  return `No usage data found for ${labels.join(", ")}, or ${last}.`;
+}
+
+function getRequestedMissingProvidersMessage(missing: ProviderId[]) {
+  return `Requested provider data not found: ${missing.map((provider) => providerStatusLabel[provider]).join(", ")}`;
+}
+
+function getNoDataMessage() {
+  return getMergedNoDataMessage();
+}
+
 function getOutputProviders(
   values: CliArgValues,
+  availabilityByProvider: Record<ProviderId, boolean>,
   rowsByProvider: Record<ProviderId, UsageSummary | null>,
   end: Date,
 ) {
   if (!values.all) {
     return selectProvidersToRender(
+      availabilityByProvider,
       rowsByProvider,
       getRequestedProviders(values),
     );
@@ -193,12 +222,33 @@ function getOutputProviders(
   const merged = mergeProviderUsage(rowsByProvider, end);
 
   if (!merged) {
-    throw new Error(
-      "No usage data found for Claude Code, Codex, Cursor, Open Code, Pi Coding Agent, or Crush.",
-    );
+    throw new Error(getMergedNoDataMessage());
   }
 
   return [merged];
+}
+
+function getDefaultOutputProviderIds(
+  rowsByProvider: Record<ProviderId, UsageSummary | null>,
+) {
+  const selected: ProviderId[] = [];
+  const fallbackProviders = providerIds.filter(
+    (provider) => !defaultProviderIds.includes(provider),
+  );
+
+  for (const provider of [...defaultProviderIds, ...fallbackProviders]) {
+    if (!rowsByProvider[provider] || selected.includes(provider)) {
+      continue;
+    }
+
+    selected.push(provider);
+
+    if (selected.length === 3) {
+      return selected;
+    }
+  }
+
+  return selected;
 }
 
 function getMergedProviderTitle(
@@ -211,26 +261,38 @@ function getMergedProviderTitle(
 }
 
 function selectProvidersToRender(
+  availabilityByProvider: Record<ProviderId, boolean>,
   rowsByProvider: Record<ProviderId, UsageSummary | null>,
   requested: ProviderId[],
 ) {
+  const defaultProviders = getDefaultOutputProviderIds(rowsByProvider);
   const providersToRender =
     requested.length > 0
       ? requested.filter((provider) => rowsByProvider[provider])
-      : providerIds.filter((provider) => rowsByProvider[provider]);
+      : defaultProviders.filter((provider) => rowsByProvider[provider]);
 
   if (requested.length > 0 && providersToRender.length < requested.length) {
     const missing = requested.filter((provider) => !rowsByProvider[provider]);
 
-    throw new Error(
-      `Requested provider data not found: ${missing.map((provider) => providerStatusLabel[provider]).join(", ")}`,
-    );
+    throw new Error(getRequestedMissingProvidersMessage(missing));
   }
 
   if (providersToRender.length === 0) {
-    throw new Error(
-      "No usage data found for Claude Code, Codex, Cursor, Open Code, Pi Coding Agent, or Crush.",
+    const availableProviders = providerIds.filter(
+      (provider) => availabilityByProvider[provider],
     );
+
+    if (availableProviders.length > 0) {
+      const availableLabels = availableProviders
+        .map((provider) => providerStatusLabel[provider])
+        .join(", ");
+
+      throw new Error(
+        `No usage data found for available providers (${availableLabels}).`,
+      );
+    }
+
+    throw new Error(getNoDataMessage());
   }
 
   return providersToRender.map((provider) => rowsByProvider[provider]!);
@@ -270,12 +332,15 @@ async function main() {
       help: { type: "boolean", short: "h", default: false },
       dark: { type: "boolean", default: false },
       all: { type: "boolean", default: false },
+      amp: { type: "boolean", default: false },
       claude: { type: "boolean", default: false },
       codex: { type: "boolean", default: false },
       cursor: { type: "boolean", default: false },
+      gemini: { type: "boolean", default: false },
       opencode: { type: "boolean", default: false },
       pi: { type: "boolean", default: false },
       crush: { type: "boolean", default: false },
+      antigravity: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });
@@ -304,6 +369,8 @@ async function main() {
       : getRequestedProviders(values);
     const inspectedProviders =
       requestedProviders.length > 0 ? requestedProviders : providerIds;
+    const availabilityByProvider =
+      await getProviderAvailability(inspectedProviders);
     const { rowsByProvider, warnings } = await aggregateUsage({
       start,
       end,
@@ -316,12 +383,17 @@ async function main() {
       process.stderr.write(`${warning}\n`);
     }
 
-    printProviderAvailability(rowsByProvider, inspectedProviders);
+    printProviderAvailability(availabilityByProvider, inspectedProviders);
 
-    const exportProviders = getOutputProviders(values, rowsByProvider, end);
+    const exportProviders = getOutputProviders(
+      values,
+      availabilityByProvider,
+      rowsByProvider,
+      end,
+    );
 
     const outputPath = resolve(
-      values.output ?? `./heatmap-last-year.${format}`,
+      values.output ?? getDefaultOutputPath(values, format),
     );
 
     mkdirSync(dirname(outputPath), { recursive: true });

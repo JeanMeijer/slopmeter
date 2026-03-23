@@ -93,6 +93,15 @@ async function getOpenCodeSource(): Promise<OpenCodeSource> {
   return { kind: "legacy", files: await listFilesRecursive(messagesDir, ".json") };
 }
 
+export function isOpenCodeAvailable() {
+  const baseDir = getOpenCodeBaseDir();
+
+  return (
+    existsSync(join(baseDir, "opencode.db")) ||
+    existsSync(join(baseDir, "storage", "message"))
+  );
+}
+
 async function loadSqliteModule() {
   try {
     const moduleName = "node:sqlite";

@@ -1,10 +1,13 @@
 export type UsageProviderId =
+  | "amp"
   | "claude"
   | "codex"
   | "cursor"
+  | "gemini"
   | "opencode"
   | "pi"
   | "crush"
+  | "antigravity"
   | "all";
 
 export interface UsageSummary {

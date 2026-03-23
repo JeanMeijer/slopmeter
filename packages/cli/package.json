@@ -1,7 +1,7 @@
 {
   "name": "slopmeter",
-  "version": "0.4.1",
-  "description": "CLI for generating yearly usage heatmaps for Claude Code, Codex, Cursor, Open Code, and Pi Coding Agent.",
+  "version": "0.5.1",
+  "description": "CLI for generating yearly usage heatmaps for Amp, Claude Code, Codex, Crush, Cursor, Gemini CLI, Google Antigravity, Open Code, and Pi Coding Agent.",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -23,8 +23,11 @@
     "codex",
     "claude-code",
     "cursor",
+    "gemini-cli",
     "opencode",
-    "pi-coding-agent"
+    "pi-coding-agent",
+    "crush",
+    "antigravity"
   ],
   "bin": {
     "slopmeter": "./dist/cli.js"

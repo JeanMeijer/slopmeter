@@ -80,6 +80,25 @@ interface SurfacePalette {
 }
 
 export const heatmapThemes: Record<HeatmapThemeId, HeatmapTheme> = {
+  amp: {
+    title: "Amp",
+    colors: {
+      light: [
+        "#ecfeff", // cyan-50
+        "#a5f3fc", // cyan-200
+        "#67e8f9", // cyan-300
+        "#06b6d4", // cyan-500
+        "#0e7490", // cyan-700
+      ],
+      dark: [
+        "#083344", // cyan-950
+        "#155e75", // cyan-800
+        "#0891b2", // cyan-600
+        "#22d3ee", // cyan-400
+        "#a5f3fc", // cyan-200
+      ],
+    },
+  },
   claude: {
     title: "Claude Code",
     colors: {
@@ -134,6 +153,25 @@ export const heatmapThemes: Record<HeatmapThemeId, HeatmapTheme> = {
         "#c2410c", // orange-700
         "#f97316", // orange-500
         "#fdba74", // orange-300
+      ],
+    },
+  },
+  gemini: {
+    title: "Gemini CLI",
+    colors: {
+      light: [
+        "#eff6ff", // blue-50
+        "#bfdbfe", // blue-200
+        "#93c5fd", // blue-300
+        "#3b82f6", // blue-500
+        "#1d4ed8", // blue-700
+      ],
+      dark: [
+        "#172554", // blue-950
+        "#1d4ed8", // blue-700
+        "#2563eb", // blue-600
+        "#60a5fa", // blue-400
+        "#bfdbfe", // blue-200
       ],
     },
   },
@@ -194,8 +232,27 @@ export const heatmapThemes: Record<HeatmapThemeId, HeatmapTheme> = {
       ],
     },
   },
+  antigravity: {
+    title: "Google Antigravity",
+    colors: {
+      light: [
+        "#eff6ff", // blue-50
+        "#bfdbfe", // blue-200
+        "#60a5fa", // blue-400
+        "#2563eb", // blue-600
+        "#1e3a8a", // blue-900
+      ],
+      dark: [
+        "#172554", // blue-950
+        "#1d4ed8", // blue-700
+        "#2563eb", // blue-600
+        "#60a5fa", // blue-400
+        "#bfdbfe", // blue-200
+      ],
+    },
+  },
   all: {
-    title: "Codex / Claude Code / Cursor / Open Code / Pi Coding Agent / Crush",
+    title: "All Providers",
     titleCaption: "Total usage from",
     colors: {
       light: [
@@ -443,6 +500,7 @@ function drawHeatmapSection(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalTokens = 0;
+  let totalActivity = 0;
   let firstActivityOnlyDate: string | null = null;
   let firstMeasuredDate: string | null = null;
 
@@ -452,6 +510,7 @@ function drawHeatmapSection(
 
     valueByDate.set(dateKey, displayValue);
     maxValue = Math.max(maxValue, displayValue);
+    totalActivity += displayValue;
     if (row.total <= 0 && displayValue > 0) {
       if (!firstActivityOnlyDate || dateKey < firstActivityOnlyDate) {
         firstActivityOnlyDate = dateKey;
@@ -470,9 +529,18 @@ function drawHeatmapSection(
   const topMetricGap = 120;
   const headerInputX = rightEdge - topMetricGap * 2;
   const headerOutputX = rightEdge - topMetricGap;
-  const totalTokensLabel = formatTokenTotal(totalTokens);
-  const totalInputLabel = formatTokenTotal(totalInputTokens);
-  const totalOutputLabel = formatTokenTotal(totalOutputTokens);
+  const hasMeasuredTokens = totalTokens > 0;
+  const totalTokensLabel = hasMeasuredTokens
+    ? formatTokenTotal(totalTokens)
+    : totalActivity > 0
+      ? `${totalActivity.toLocaleString("en-US")} events`
+      : "0";
+  const totalInputLabel = hasMeasuredTokens
+    ? formatTokenTotal(totalInputTokens)
+    : "N/A";
+  const totalOutputLabel = hasMeasuredTokens
+    ? formatTokenTotal(totalOutputTokens)
+    : "N/A";
   const longestStreak = insights?.streaks.longest ?? 0;
   const currentStreak = insights?.streaks.current ?? 0;
 
@@ -528,7 +596,7 @@ function drawHeatmapSection(
       "dominant-baseline": "hanging",
       "font-family": fontFamily,
     },
-    caption("Input tokens"),
+    caption(hasMeasuredTokens ? "Input tokens" : "Input tokens"),
   );
 
   svg = svg.text(
@@ -556,7 +624,7 @@ function drawHeatmapSection(
       "dominant-baseline": "hanging",
       "font-family": fontFamily,
     },
-    caption("Output tokens"),
+    caption(hasMeasuredTokens ? "Output tokens" : "Output tokens"),
   );
 
   svg = svg.text(
@@ -584,7 +652,7 @@ function drawHeatmapSection(
       "dominant-baseline": "hanging",
       "font-family": fontFamily,
     },
-    caption("Total tokens"),
+    caption(hasMeasuredTokens ? "Total tokens" : "Activity"),
   );
 
   svg = svg.text(
