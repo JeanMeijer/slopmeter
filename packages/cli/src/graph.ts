@@ -62,7 +62,8 @@ interface RenderUsageHeatmapsSvgSection {
 
 interface ModelUsageRow {
   caption: string;
-  data: ModelUsage;
+  data?: ModelUsage;
+  placeholder?: string;
 }
 
 interface RenderUsageHeatmapsSvgOptions {
@@ -212,9 +213,46 @@ export const heatmapThemes: Record<HeatmapThemeId, HeatmapTheme> = {
       ],
     },
   },
+  crush: {
+    title: "Crush",
+    colors: {
+      light: [
+        "#fff1f2", // rose-50
+        "#fecdd3", // rose-200
+        "#fda4af", // rose-300
+        "#fb7185", // rose-400
+        "#be123c", // rose-700
+      ],
+      dark: [
+        "#4c0519", // rose-950
+        "#9f1239", // rose-800
+        "#e11d48", // rose-600
+        "#fb7185", // rose-400
+        "#fecdd3", // rose-200
+      ],
+    },
+  },
+  antigravity: {
+    title: "Google Antigravity",
+    colors: {
+      light: [
+        "#eff6ff", // blue-50
+        "#bfdbfe", // blue-200
+        "#60a5fa", // blue-400
+        "#2563eb", // blue-600
+        "#1e3a8a", // blue-900
+      ],
+      dark: [
+        "#172554", // blue-950
+        "#1d4ed8", // blue-700
+        "#2563eb", // blue-600
+        "#60a5fa", // blue-400
+        "#bfdbfe", // blue-200
+      ],
+    },
+  },
   all: {
-    title:
-      "Amp / Claude Code / Codex / Cursor / Gemini CLI / Open Code / Pi Coding Agent",
+    title: "All Providers",
     titleCaption: "Total usage from",
     colors: {
       light: [
@@ -285,6 +323,14 @@ function formatTokenTotal(value: number) {
   }
 
   return numberFormatter.format(value);
+}
+
+function formatModelUsageMetric(model: ModelUsage) {
+  if (model.metric?.unit === "messages") {
+    return `${numberFormatter.format(model.metric.value)} msgs`;
+  }
+
+  return formatTokenTotal(model.tokens.total);
 }
 
 function truncateText(value: string, maxLength: number) {
@@ -454,6 +500,7 @@ function drawHeatmapSection(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalTokens = 0;
+  let totalActivity = 0;
   let firstActivityOnlyDate: string | null = null;
   let firstMeasuredDate: string | null = null;
 
@@ -463,6 +510,7 @@ function drawHeatmapSection(
 
     valueByDate.set(dateKey, displayValue);
     maxValue = Math.max(maxValue, displayValue);
+    totalActivity += displayValue;
     if (row.total <= 0 && displayValue > 0) {
       if (!firstActivityOnlyDate || dateKey < firstActivityOnlyDate) {
         firstActivityOnlyDate = dateKey;
@@ -481,9 +529,18 @@ function drawHeatmapSection(
   const topMetricGap = 120;
   const headerInputX = rightEdge - topMetricGap * 2;
   const headerOutputX = rightEdge - topMetricGap;
-  const totalTokensLabel = formatTokenTotal(totalTokens);
-  const totalInputLabel = formatTokenTotal(totalInputTokens);
-  const totalOutputLabel = formatTokenTotal(totalOutputTokens);
+  const hasMeasuredTokens = totalTokens > 0;
+  const totalTokensLabel = hasMeasuredTokens
+    ? formatTokenTotal(totalTokens)
+    : totalActivity > 0
+      ? `${totalActivity.toLocaleString("en-US")} events`
+      : "0";
+  const totalInputLabel = hasMeasuredTokens
+    ? formatTokenTotal(totalInputTokens)
+    : "N/A";
+  const totalOutputLabel = hasMeasuredTokens
+    ? formatTokenTotal(totalOutputTokens)
+    : "N/A";
   const longestStreak = insights?.streaks.longest ?? 0;
   const currentStreak = insights?.streaks.current ?? 0;
 
@@ -539,7 +596,7 @@ function drawHeatmapSection(
       "dominant-baseline": "hanging",
       "font-family": fontFamily,
     },
-    caption("Input tokens"),
+    caption(hasMeasuredTokens ? "Input tokens" : "Input tokens"),
   );
 
   svg = svg.text(
@@ -567,7 +624,7 @@ function drawHeatmapSection(
       "dominant-baseline": "hanging",
       "font-family": fontFamily,
     },
-    caption("Output tokens"),
+    caption(hasMeasuredTokens ? "Output tokens" : "Output tokens"),
   );
 
   svg = svg.text(
@@ -595,7 +652,7 @@ function drawHeatmapSection(
       "dominant-baseline": "hanging",
       "font-family": fontFamily,
     },
-    caption("Total tokens"),
+    caption(hasMeasuredTokens ? "Total tokens" : "Activity"),
   );
 
   svg = svg.text(
@@ -752,25 +809,23 @@ function drawHeatmapSection(
   const leftSecondaryX = leftColumnX + 250;
   const rightPrimaryX = rightColumnX - 160;
 
-  const leftRows: ModelUsageRow[] = [];
-
-  if (insights?.mostUsedModel) {
-    leftRows.push({ caption: "Most used model", data: insights.mostUsedModel });
-  }
-
-  if (insights?.recentMostUsedModel) {
-    leftRows.push({
+  const leftRows: ModelUsageRow[] = [
+    {
+      caption: "Most used model",
+      data: insights?.mostUsedModel,
+      placeholder: "Not tracked",
+    },
+    {
       caption: "Recent use (last 30 days)",
-      data: insights.recentMostUsedModel,
-    });
-  }
+      data: insights?.recentMostUsedModel,
+      placeholder: "Not tracked",
+    },
+  ];
 
   for (const [index, row] of leftRows.entries()) {
     const captionY = layout.footerCaptionY;
     const valueY = layout.footerValueY;
-    const modelName = truncateText(row.data.name, 20);
     const modelX = index === 0 ? leftColumnX : leftSecondaryX;
-    const tokenLabel = `(${formatTokenTotal(row.data.tokens.total)})`;
 
     svg = svg.text(
       {
@@ -792,7 +847,9 @@ function drawHeatmapSection(
         "dominant-baseline": "hanging",
         "font-family": fontFamily,
       },
-      `<tspan fill="${palette.text}" font-size="${metricValueFontSize}" font-weight="600">${escapeXml(modelName)}</tspan><tspan dx="6" fill="${palette.muted}" font-size="${metricValueFontSize}" font-weight="400">${tokenLabel}</tspan>`,
+      row.data
+        ? `<tspan fill="${palette.text}" font-size="${metricValueFontSize}" font-weight="600">${escapeXml(truncateText(row.data.name, 20))}</tspan><tspan dx="6" fill="${palette.muted}" font-size="${metricValueFontSize}" font-weight="400">(${escapeXml(formatModelUsageMetric(row.data))})</tspan>`
+        : `<tspan fill="${palette.muted}" font-size="${metricValueFontSize}" font-weight="500">${escapeXml(row.placeholder ?? "Unavailable")}</tspan>`,
     );
   }
 

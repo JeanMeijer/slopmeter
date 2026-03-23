@@ -99,7 +99,11 @@ async function processAmpFile(
 
   try {
     thread = await readJsonDocument<AmpThread>(filePath);
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    console.warn(`Warning: skipping Amp thread ${filePath}: ${message}`);
+
     return { totals, modelTotals, recentModelTotals };
   }
 

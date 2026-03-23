@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,6 +36,12 @@ function recentDate(daysAgo = 0) {
   date.setDate(date.getDate() - daysAgo);
 
   return date.toISOString().slice(0, 10);
+}
+
+function recentUnix(daysAgo = 0) {
+  return Math.floor(
+    new Date(`${recentDate(daysAgo)}T12:00:00`).getTime() / 1000,
+  );
 }
 
 function formatLocalDate(date: Date) {
@@ -292,6 +299,121 @@ function geminiSession(options: {
   });
 }
 
+function antigravityLogTimestamp(daysAgo = 0, hour = 12, minute = 0, second = 0) {
+  const date = new Date();
+
+  date.setHours(hour, minute, second, 123);
+  date.setDate(date.getDate() - daysAgo);
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.123`;
+}
+
+function antigravityRequestLine(daysAgo = 0, hour = 12, minute = 0) {
+  return `${antigravityLogTimestamp(daysAgo, hour, minute)} [info] I0301 10:14:13.655557 63519 http_helpers.go:123] URL: https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse Trace: 0xdfab11eb0c8a4e96`;
+}
+
+function antigravityModelLine(model: string, daysAgo = 0, hour = 12, minute = 0) {
+  return `${antigravityLogTimestamp(daysAgo, hour, minute)} [info] E0301 10:15:08.571798 63519 log.go:380] UNAVAILABLE (code 503): No capacity available for model ${model} on the server`;
+}
+
+function protobufVarint(value: number) {
+  const bytes: number[] = [];
+  let remaining = value >>> 0;
+
+  while (remaining >= 0x80) {
+    bytes.push((remaining & 0x7f) | 0x80);
+    remaining >>>= 7;
+  }
+
+  bytes.push(remaining);
+
+  return Buffer.from(bytes);
+}
+
+function protobufLengthDelimited(fieldNumber: number, value: Buffer | string) {
+  const bytes = typeof value === "string" ? Buffer.from(value, "utf8") : value;
+  const tag = protobufVarint((fieldNumber << 3) | 2);
+
+  return Buffer.concat([tag, protobufVarint(bytes.length), bytes]);
+}
+
+function protobufMessage(fieldNumber: number, parts: Buffer[]) {
+  return protobufLengthDelimited(fieldNumber, Buffer.concat(parts));
+}
+
+function protobufInt(fieldNumber: number, value: number) {
+  return Buffer.concat([
+    protobufVarint(fieldNumber << 3),
+    protobufVarint(value),
+  ]);
+}
+
+function protobufTimestamp(seconds: number) {
+  return Buffer.concat([
+    protobufInt(1, seconds),
+    protobufInt(2, 0),
+  ]);
+}
+
+function createAntigravityTrajectorySummaries(entries: Array<{
+  id: string;
+  title: string;
+  timestamps: number[];
+  model?: string;
+}>) {
+  return Buffer.concat(
+    entries.map((entry) => {
+      const inner = Buffer.concat([
+        protobufLengthDelimited(1, entry.title),
+        ...entry.timestamps.map((timestamp, index) =>
+          protobufMessage(index === 0 ? 3 : 7 + index, [
+            protobufTimestamp(timestamp),
+          ]),
+        ),
+        ...(entry.model ? [protobufLengthDelimited(20, entry.model)] : []),
+      ]);
+      const outer = Buffer.concat([
+        protobufLengthDelimited(1, entry.id),
+        protobufLengthDelimited(2, inner.toString("base64")),
+      ]);
+
+      return protobufMessage(1, [outer]);
+    }),
+  ).toString("base64");
+}
+
+async function createAntigravityStateDb(
+  dbPath: string,
+  values: Record<string, string>,
+) {
+  ensureParent(dbPath);
+
+  const { DatabaseSync } = await import("node:sqlite");
+  const database = new DatabaseSync(dbPath);
+
+  try {
+    database.exec(
+      "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB NOT NULL)",
+    );
+    const statement = database.prepare(
+      "INSERT INTO ItemTable (key, value) VALUES (?, ?)",
+    );
+
+    for (const [key, value] of Object.entries(values)) {
+      statement.run(key, value);
+    }
+  } finally {
+    database.close();
+  }
+}
+
 function piSessionHeader(cwd = "/tmp") {
   return JSON.stringify({
     type: "session",
@@ -394,8 +516,154 @@ async function createOpenCodeDb(
   }
 }
 
-async function runCli(args: string[], extraEnv: Record<string, string>) {
-  const isolatedHome = extraEnv.HOME ?? tmpdir();
+async function createCrushDb(
+  rootDir: string,
+  rows: Array<{
+    id: string;
+    parentSessionId?: string | null;
+    createdAt?: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    messages?: Array<{
+      id?: string;
+      role?: string;
+      model?: string;
+      provider?: string;
+      createdAt?: number;
+    }>;
+  }>,
+  options?: {
+    wal?: boolean;
+    keepOpen?: boolean;
+  },
+) {
+  const { DatabaseSync } = await import("node:sqlite");
+  const databasePath = join(rootDir, "crush.db");
+
+  ensureParent(databasePath);
+
+  const database = new DatabaseSync(databasePath);
+
+  database.exec(`PRAGMA journal_mode = ${options?.wal ? "WAL" : "DELETE"};`);
+
+  database.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      parent_session_id TEXT,
+      title TEXT NOT NULL,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cost REAL NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.exec(`
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      model TEXT,
+      provider TEXT,
+      is_summary_message BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  const insert = database.prepare(`
+    INSERT INTO sessions (
+      id,
+      parent_session_id,
+      title,
+      message_count,
+      prompt_tokens,
+      completion_tokens,
+      cost,
+      updated_at,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertMessage = database.prepare(`
+    INSERT INTO messages (
+      id,
+      session_id,
+      role,
+      content,
+      model,
+      provider,
+      is_summary_message,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const row of rows) {
+    const createdAt = row.createdAt ?? recentUnix();
+
+    insert.run(
+      row.id,
+      row.parentSessionId ?? null,
+      `Session ${row.id}`,
+      1,
+      row.promptTokens ?? 0,
+      row.completionTokens ?? 0,
+      0,
+      createdAt,
+      createdAt,
+    );
+
+    for (const [index, message] of (row.messages ?? []).entries()) {
+      const messageCreatedAt = message.createdAt ?? createdAt;
+
+      insertMessage.run(
+        message.id ?? `${row.id}-msg-${index + 1}`,
+        row.id,
+        message.role ?? "assistant",
+        "",
+        message.model ?? null,
+        message.provider ?? null,
+        0,
+        messageCreatedAt,
+        messageCreatedAt,
+      );
+    }
+  }
+
+  if (options?.keepOpen) {
+    return { databasePath, database };
+  }
+
+  database.close();
+
+  return { databasePath, database: undefined };
+}
+
+function writeCrushProjectsFile(
+  globalDataDir: string,
+  projects: Array<{ path: string; dataDir: string }>,
+) {
+  writeJsonFile(
+    join(globalDataDir, "projects.json"),
+    JSON.stringify({
+      projects: projects.map((project) => ({
+        path: project.path,
+        data_dir: project.dataDir,
+        last_accessed: new Date().toISOString(),
+      })),
+    }),
+  );
+}
+
+async function runCli(
+  args: string[],
+  extraEnv: Record<string, string>,
+  options?: { cwd?: string },
+) {
+  const isolatedHome = extraEnv.HOME ?? options?.cwd ?? mkdtempSync(join(tmpdir(), "slopmeter-test-"));
 
   return await new Promise<{
     code: number | null;
@@ -406,12 +674,17 @@ async function runCli(args: string[], extraEnv: Record<string, string>) {
       env: {
         ...process.env,
         HOME: isolatedHome,
+        APPDATA: isolatedHome,
+        LOCALAPPDATA: isolatedHome,
+        XDG_CONFIG_HOME: join(isolatedHome, ".config"),
+        XDG_DATA_HOME: join(isolatedHome, ".local", "share"),
         ...extraEnv,
         FORCE_COLOR: "0",
         NODE_NO_WARNINGS: "1",
         NO_COLOR: "1",
         TERM: "dumb",
       },
+      cwd: options?.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -1739,4 +2012,646 @@ test("Gemini fails clearly on oversized session JSON documents", async (t) => {
     new RegExp(oversizedFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
   );
   assert.match(result.stderr, /SLOPMETER_MAX_JSONL_RECORD_BYTES/);
+});
+
+test("--crush only loads Crush from tracked project data dirs", async (t) => {
+  const workspace = createTempWorkspace("crush-only");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const globalDataDir = join(workspace, "global");
+  const projectDir = join(workspace, "project-one");
+  const outputPath = join(workspace, "out.json");
+
+  await createCrushDb(join(projectDir, ".crush"), [
+    {
+      id: "crush-root",
+      createdAt: recentUnix(1),
+      promptTokens: 12,
+      completionTokens: 8,
+    },
+    {
+      id: "crush-child",
+      parentSessionId: "crush-root",
+      createdAt: recentUnix(1),
+      promptTokens: 999,
+      completionTokens: 999,
+    },
+  ]);
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: projectDir,
+      dataDir: ".crush",
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", outputPath],
+    {
+      CRUSH_GLOBAL_DATA: globalDataDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Crush found/);
+  assert.doesNotMatch(result.stdout, /Claude code/);
+  assert.doesNotMatch(result.stdout, /Codex/);
+  assert.doesNotMatch(result.stdout, /Open Code/);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      insights?: Record<string, unknown>;
+      daily: Array<{
+        input: number;
+        output: number;
+        cache: { input: number; output: number };
+        total: number;
+      }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["crush"],
+  );
+  assert.deepEqual(
+    payload.providers[0]?.daily.map((day) => ({
+      input: day.input,
+      output: day.output,
+      cache: day.cache,
+      total: day.total,
+    })),
+    [
+      {
+        input: 12,
+        output: 8,
+        cache: { input: 0, output: 0 },
+        total: 20,
+      },
+    ],
+  );
+  assert.equal(
+    Object.hasOwn(payload.providers[0]?.insights ?? {}, "mostUsedModel"),
+    false,
+  );
+});
+
+test("--crush fails clearly when no Crush data is available", async (t) => {
+  const workspace = createTempWorkspace("crush-missing");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", join(workspace, "out.json")],
+    {
+      CRUSH_GLOBAL_DATA: join(workspace, "global"),
+    },
+    { cwd: workspace },
+  );
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Requested provider data not found: Crush/);
+});
+
+test("Crush participates in default auto-detection and merged output", async (t) => {
+  const workspace = createTempWorkspace("crush-default-and-all");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const globalDataDir = join(workspace, "global");
+  const projectDir = join(workspace, "project-one");
+  const codexHome = join(workspace, "codex");
+  const claudeConfig = join(workspace, "claude");
+  const cursorStateDbPath = join(workspace, "cursor", "state.vscdb");
+  const openCodeDir = join(workspace, "opencode");
+  const outputDefaultPath = join(workspace, "default.json");
+  const outputAllPath = join(workspace, "all.json");
+
+  await createCrushDb(join(projectDir, ".crush"), [
+    {
+      id: "crush-root",
+      createdAt: recentUnix(2),
+      promptTokens: 9,
+      completionTokens: 6,
+    },
+  ]);
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: projectDir,
+      dataDir: ".crush",
+    },
+  ]);
+  writeJsonlFile(join(codexHome, "sessions", "session.jsonl"), [
+    codexTurnContext("gpt-5"),
+    codexTokenCount({
+      timestamp: recentIso(2),
+      input: 7,
+      output: 3,
+      total: 10,
+    }),
+  ]);
+
+  const defaultResult = await runCli(
+    ["--format", "json", "--output", outputDefaultPath],
+    {
+      CLAUDE_CONFIG_DIR: claudeConfig,
+      CODEX_HOME: codexHome,
+      CRUSH_GLOBAL_DATA: globalDataDir,
+      CURSOR_STATE_DB_PATH: cursorStateDbPath,
+      OPENCODE_DATA_DIR: openCodeDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(
+    defaultResult.code,
+    0,
+    defaultResult.stderr || defaultResult.stdout,
+  );
+
+  const defaultPayload = JSON.parse(
+    readFileSync(outputDefaultPath, "utf8"),
+  ) as {
+    providers: Array<{ provider: string }>;
+  };
+
+  assert.deepEqual(
+    defaultPayload.providers.map((provider) => provider.provider),
+    ["codex", "crush"],
+  );
+
+  const allResult = await runCli(
+    ["--all", "--format", "json", "--output", outputAllPath],
+    {
+      CLAUDE_CONFIG_DIR: claudeConfig,
+      CODEX_HOME: codexHome,
+      CRUSH_GLOBAL_DATA: globalDataDir,
+      CURSOR_STATE_DB_PATH: cursorStateDbPath,
+      OPENCODE_DATA_DIR: openCodeDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(allResult.code, 0, allResult.stderr || allResult.stdout);
+
+  const allPayload = JSON.parse(readFileSync(outputAllPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{ total: number }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    allPayload.providers.map((provider) => provider.provider),
+    ["all"],
+  );
+  assert.equal(allPayload.providers[0]?.daily[0]?.total, 25);
+});
+
+test("Crush snapshots WAL-backed databases and renders placeholder model metrics", async (t) => {
+  const workspace = createTempWorkspace("crush-wal");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const globalDataDir = join(workspace, "global");
+  const projectDataDir = join(workspace, "project-data");
+  const outputPath = join(workspace, "out.svg");
+  const { database } = await createCrushDb(
+    projectDataDir,
+    [
+      {
+        id: "crush-root",
+        createdAt: recentUnix(0),
+        promptTokens: 5,
+        completionTokens: 4,
+      },
+    ],
+    { wal: true, keepOpen: true },
+  );
+
+  t.after(() => {
+    database?.close();
+  });
+
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: workspace,
+      dataDir: projectDataDir,
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "svg", "--output", outputPath],
+    {
+      CRUSH_GLOBAL_DATA: globalDataDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const svg = readFileSync(outputPath, "utf8");
+
+  assert.match(svg, /Crush/);
+  assert.match(svg, /Not tracked/);
+});
+
+test("Crush reports most used model by assistant message count", async (t) => {
+  const workspace = createTempWorkspace("crush-model-messages");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const globalDataDir = join(workspace, "global");
+  const projectDir = join(workspace, "project-one");
+  const outputPath = join(workspace, "out.json");
+
+  await createCrushDb(join(projectDir, ".crush"), [
+    {
+      id: "crush-root-old",
+      createdAt: recentUnix(45),
+      promptTokens: 12,
+      completionTokens: 8,
+      messages: [
+        { model: "gpt-5.3-codex", provider: "openai", createdAt: recentUnix(45) },
+        { model: "gpt-5.3-codex", provider: "openai", createdAt: recentUnix(45) },
+      ],
+    },
+    {
+      id: "crush-root-recent",
+      createdAt: recentUnix(2),
+      promptTokens: 10,
+      completionTokens: 6,
+      messages: [
+        { model: "glm-4.7", provider: "zai", createdAt: recentUnix(2) },
+        { model: "glm-4.7", provider: "zai", createdAt: recentUnix(2) },
+        { model: "glm-4.7", provider: "zai", createdAt: recentUnix(2) },
+        { model: "gpt-5.3-codex", provider: "openai", createdAt: recentUnix(2) },
+        { model: "gpt-5.3-codex", provider: "openai", createdAt: recentUnix(2) },
+      ],
+    },
+  ]);
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: projectDir,
+      dataDir: ".crush",
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", outputPath],
+    {
+      CRUSH_GLOBAL_DATA: globalDataDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      insights?: {
+        mostUsedModel?: {
+          name: string;
+          metric?: { unit: string; value: number };
+        };
+        recentMostUsedModel?: {
+          name: string;
+          metric?: { unit: string; value: number };
+        };
+      };
+    }>;
+  };
+
+  assert.equal(
+    payload.providers[0]?.insights?.mostUsedModel?.name,
+    "gpt-5.3-codex (openai)",
+  );
+  assert.deepEqual(payload.providers[0]?.insights?.mostUsedModel?.metric, {
+    unit: "messages",
+    value: 4,
+  });
+  assert.equal(
+    payload.providers[0]?.insights?.recentMostUsedModel?.name,
+    "glm-4.7 (zai)",
+  );
+  assert.deepEqual(payload.providers[0]?.insights?.recentMostUsedModel?.metric, {
+    unit: "messages",
+    value: 3,
+  });
+});
+
+test("Crush falls back to ~/.crush when no project-local database is present", async (t) => {
+  const workspace = createTempWorkspace("crush-home");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const homeDir = join(workspace, "home");
+  const outputPath = join(workspace, "out.json");
+
+  await createCrushDb(join(homeDir, ".crush"), [
+    {
+      id: "crush-home-root",
+      createdAt: recentUnix(1),
+      promptTokens: 4,
+      completionTokens: 3,
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", outputPath],
+    {
+      HOME: homeDir,
+      CRUSH_GLOBAL_DATA: join(homeDir, ".local", "share", "crush"),
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{ total: number }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["crush"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 7);
+});
+
+test("Google Antigravity loads request activity from extension logs", async (t) => {
+  const workspace = createTempWorkspace("antigravity-only");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const antigravityLogsDir = join(workspace, "antigravity", "logs");
+  const outputPath = join(workspace, "out.json");
+
+  writeJsonFile(
+    join(
+      antigravityLogsDir,
+      "20260301T101349",
+      "window1",
+      "exthost",
+      "google.antigravity",
+      "Antigravity.log",
+    ),
+    [
+      antigravityModelLine("gemini-3.1-pro-high", 2, 10, 14),
+      antigravityRequestLine(2, 10, 15),
+      antigravityRequestLine(2, 10, 18),
+      antigravityRequestLine(45, 15, 2),
+    ].join("\n"),
+  );
+
+  const result = await runCli(
+    ["--antigravity", "--format", "json", "--output", outputPath],
+    {
+      ANTIGRAVITY_LOGS_DIR: antigravityLogsDir,
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Google Antigravity found/);
+  assert.doesNotMatch(result.stdout, /Codex/);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{ date: string; total: number; displayValue?: number }>;
+      insights?: {
+        mostUsedModel?: { name: string; metric?: { unit: string; value: number } };
+        recentMostUsedModel?: {
+          name: string;
+          metric?: { unit: string; value: number };
+        };
+      };
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["antigravity"],
+  );
+  assert.deepEqual(
+    payload.providers[0]?.daily.map((day) => ({
+      date: day.date,
+      total: day.total,
+      displayValue: day.displayValue,
+    })),
+    [
+      { date: recentDate(45), total: 0, displayValue: 1 },
+      { date: recentDate(2), total: 0, displayValue: 2 },
+    ],
+  );
+  assert.equal(
+    payload.providers[0]?.insights?.mostUsedModel?.name,
+    "gemini-3.1-pro-high",
+  );
+  assert.deepEqual(payload.providers[0]?.insights?.mostUsedModel?.metric, {
+    unit: "messages",
+    value: 3,
+  });
+  assert.equal(
+    payload.providers[0]?.insights?.recentMostUsedModel?.name,
+    "gemini-3.1-pro-high",
+  );
+  assert.deepEqual(payload.providers[0]?.insights?.recentMostUsedModel?.metric, {
+    unit: "messages",
+    value: 2,
+  });
+});
+
+test("Google Antigravity merges synced summaries and local sidecars", async (t) => {
+  const workspace = createTempWorkspace("antigravity-synced");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const antigravityDataDir = join(workspace, "antigravity", "data");
+  const antigravityStateDb = join(workspace, "antigravity", "state.vscdb");
+  const outputPath = join(workspace, "out.json");
+
+  await createAntigravityStateDb(antigravityStateDb, {
+    ["antigravityUnifiedStateSync.trajectorySummaries"]:
+      createAntigravityTrajectorySummaries([
+        {
+          id: "trajectory-1",
+          title: "Older synced session",
+          timestamps: [recentUnix(40), recentUnix(2)],
+          model: "gemini-3.1-pro-high",
+        },
+      ]),
+  });
+
+  writeJsonFile(
+    join(
+      antigravityDataDir,
+      "browser_recordings",
+      "recording-1",
+      "metadata.json",
+    ),
+    JSON.stringify({
+      highlights: [{ start_time: `${recentDate(12)}T12:00:00.000Z` }],
+    }),
+  );
+
+  const conversationPath = join(
+    antigravityDataDir,
+    "conversations",
+    "conversation-1.pb",
+  );
+
+  writeJsonFile(conversationPath, "conversation");
+  utimesSync(
+    conversationPath,
+    new Date(`${recentDate(20)}T12:00:00`),
+    new Date(`${recentDate(20)}T12:00:00`),
+  );
+
+  const implicitPath = join(antigravityDataDir, "implicit", "implicit-1.pb");
+
+  writeJsonFile(implicitPath, "implicit");
+  utimesSync(
+    implicitPath,
+    new Date(`${recentDate(25)}T12:00:00`),
+    new Date(`${recentDate(25)}T12:00:00`),
+  );
+
+  writeJsonFile(
+    join(antigravityDataDir, "annotations", "annotation-1.pbtxt"),
+    "last_user_view_time:{seconds:" + recentUnix(30) + " nanos:0}",
+  );
+
+  const result = await runCli(
+    ["--antigravity", "--format", "json", "--output", outputPath],
+    {
+      ANTIGRAVITY_STATE_DB: antigravityStateDb,
+      ANTIGRAVITY_DATA_DIR: antigravityDataDir,
+      ANTIGRAVITY_LOGS_DIR: join(workspace, "missing-logs"),
+    },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{ date: string; total: number; displayValue?: number }>;
+      insights?: {
+        mostUsedModel?: { name: string; metric?: { unit: string; value: number } };
+        recentMostUsedModel?: {
+          name: string;
+          metric?: { unit: string; value: number };
+        };
+      };
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers[0]?.daily.map((day) => ({
+      date: day.date,
+      total: day.total,
+      displayValue: day.displayValue,
+    })),
+    [
+      { date: recentDate(40), total: 0, displayValue: 1 },
+      { date: recentDate(30), total: 0, displayValue: 1 },
+      { date: recentDate(25), total: 0, displayValue: 1 },
+      { date: recentDate(20), total: 0, displayValue: 1 },
+      { date: recentDate(12), total: 0, displayValue: 1 },
+      { date: recentDate(2), total: 0, displayValue: 1 },
+    ],
+  );
+  assert.equal(
+    payload.providers[0]?.insights?.mostUsedModel?.name,
+    "gemini-3.1-pro-high",
+  );
+  assert.deepEqual(payload.providers[0]?.insights?.mostUsedModel?.metric, {
+    unit: "messages",
+    value: 2,
+  });
+});
+
+test("Crush scans HOME for untracked project databases", async (t) => {
+  const workspace = createTempWorkspace("crush-home-scan");
+
+  t.after(() => {
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  const homeDir = join(workspace, "home");
+  const trackedProjectDir = join(homeDir, "tracked-project");
+  const untrackedProjectDir = join(
+    homeDir,
+    "Documents",
+    "Projects",
+    "Experiments",
+    "git",
+    "personal",
+    "blog",
+  );
+  const globalDataDir = join(homeDir, ".local", "share", "crush");
+  const outputPath = join(workspace, "out.json");
+
+  await createCrushDb(join(trackedProjectDir, ".crush"), []);
+  await createCrushDb(join(untrackedProjectDir, ".crush"), [
+    {
+      id: "crush-untracked-root",
+      createdAt: recentUnix(1),
+      promptTokens: 16,
+      completionTokens: 12,
+    },
+  ]);
+  writeCrushProjectsFile(globalDataDir, [
+    {
+      path: trackedProjectDir,
+      dataDir: ".crush",
+    },
+  ]);
+
+  const result = await runCli(
+    ["--crush", "--format", "json", "--output", outputPath],
+    {
+      HOME: homeDir,
+      CRUSH_GLOBAL_DATA: globalDataDir,
+    },
+    { cwd: workspace },
+  );
+
+  assert.equal(result.code, 0, result.stderr || result.stdout);
+
+  const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+    providers: Array<{
+      provider: string;
+      daily: Array<{ total: number }>;
+    }>;
+  };
+
+  assert.deepEqual(
+    payload.providers.map((provider) => provider.provider),
+    ["crush"],
+  );
+  assert.equal(payload.providers[0]?.daily[0]?.total, 28);
 });

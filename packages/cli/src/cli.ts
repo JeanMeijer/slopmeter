@@ -37,6 +37,8 @@ interface CliArgValues {
   gemini: boolean;
   opencode: boolean;
   pi: boolean;
+  crush: boolean;
+  antigravity: boolean;
 }
 
 const PNG_BASE_WIDTH = 1000;
@@ -49,7 +51,7 @@ const HELP_TEXT = `slopmeter
 Generate rolling 1-year usage heatmap image(s) (today is the latest day).
 
 Usage:
-  slopmeter [--all] [--amp] [--claude] [--codex] [--cursor] [--gemini] [--opencode] [--pi] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
+  slopmeter [--all] [--amp] [--claude] [--codex] [--cursor] [--gemini] [--opencode] [--pi] [--crush] [--antigravity] [--dark] [--format png|svg|json] [--output ./heatmap-last-year.png]
 
 Options:
   --all                       Render one merged graph for all providers
@@ -60,9 +62,11 @@ Options:
   --gemini                    Render Gemini CLI graph
   --opencode                  Render Open Code graph
   --pi                        Render Pi Coding Agent graph
+  --crush                     Render Crush graph
+  --antigravity               Render Google Antigravity graph
   --dark                      Render with the dark theme
   -f, --format                Output format: png, svg, or json (default: png)
-  -o, --output                Output file path (default: ./heatmap-last-year.png)
+  -o, --output                Output file path (default: ./heatmap-last-year[_<providers>].png)
   -h, --help                  Show this help
 `;
 
@@ -86,6 +90,8 @@ function validateArgs(values: unknown): asserts values is CliArgValues {
       gemini: ow.boolean,
       opencode: ow.boolean,
       pi: ow.boolean,
+      crush: ow.boolean,
+      antigravity: ow.boolean,
     }),
   );
 }
@@ -185,7 +191,10 @@ function getRequestedProviders(values: CliArgValues) {
 }
 
 function getMergedNoDataMessage() {
-  return "No usage data found for Amp, Claude Code, Codex, Cursor, Gemini CLI, Open Code, or Pi Coding Agent.";
+  const labels = providerIds.map((id) => providerStatusLabel[id]);
+  const last = labels.pop();
+
+  return `No usage data found for ${labels.join(", ")}, or ${last}.`;
 }
 
 function getRequestedMissingProvidersMessage(missing: ProviderId[]) {
@@ -277,12 +286,9 @@ function selectProvidersToRender(
       const availableLabels = availableProviders
         .map((provider) => providerStatusLabel[provider])
         .join(", ");
-      const defaultLabels = defaultProviderIds
-        .map((provider) => providerStatusLabel[provider])
-        .join(", ");
 
       throw new Error(
-        `No usage data found for available providers (${availableLabels}). Preferred order is ${defaultLabels}. Use --all or specify providers explicitly.`,
+        `No usage data found for available providers (${availableLabels}).`,
       );
     }
 
@@ -333,6 +339,8 @@ async function main() {
       gemini: { type: "boolean", default: false },
       opencode: { type: "boolean", default: false },
       pi: { type: "boolean", default: false },
+      crush: { type: "boolean", default: false },
+      antigravity: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });

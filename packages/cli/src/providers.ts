@@ -2,6 +2,7 @@ import type { UsageSummary } from "./interfaces";
 import { isAmpAvailable, loadAmpRows } from "./lib/amp";
 import { isClaudeAvailable, loadClaudeRows } from "./lib/claude-code";
 import { isCodexAvailable, loadCodexRows } from "./lib/codex";
+import { isCrushAvailable, loadCrushRows } from "./lib/crush";
 import { isCursorAvailable, loadCursorRows } from "./lib/cursor";
 import { isGeminiAvailable, loadGeminiRows } from "./lib/gemini";
 import {
@@ -10,6 +11,7 @@ import {
   providerStatusLabel,
   type ProviderId,
 } from "./lib/interfaces";
+import { isAntigravityAvailable, loadAntigravityRows } from "./lib/antigravity";
 import { isOpenCodeAvailable, loadOpenCodeRows } from "./lib/open-code";
 import { isPiAvailable, loadPiRows } from "./lib/pi";
 import { hasUsage, mergeUsageSummaries } from "./lib/utils";
@@ -34,10 +36,12 @@ function createEmptyProviderAvailability(): ProviderAvailability {
     amp: false,
     claude: false,
     codex: false,
+    crush: false,
     cursor: false,
     gemini: false,
     opencode: false,
     pi: false,
+    antigravity: false,
   };
 }
 
@@ -49,6 +53,8 @@ export async function isProviderAvailable(provider: ProviderId): Promise<boolean
       return isClaudeAvailable();
     case "codex":
       return isCodexAvailable();
+    case "crush":
+      return isCrushAvailable();
     case "cursor":
       return isCursorAvailable();
     case "gemini":
@@ -57,6 +63,8 @@ export async function isProviderAvailable(provider: ProviderId): Promise<boolean
       return isOpenCodeAvailable();
     case "pi":
       return isPiAvailable();
+    case "antigravity":
+      return isAntigravityAvailable();
     default: {
       const exhaustiveCheck: never = provider;
 
@@ -108,6 +116,8 @@ export async function aggregateUsage({
     gemini: null,
     opencode: null,
     pi: null,
+    crush: null,
+    antigravity: null,
   };
   const warnings: string[] = [];
 
@@ -124,6 +134,9 @@ export async function aggregateUsage({
       case "codex":
         summary = await loadCodexRows(start, end, warnings);
         break;
+      case "crush":
+        summary = await loadCrushRows(start, end);
+        break;
       case "cursor":
         summary = await loadCursorRows(start, end);
         break;
@@ -135,6 +148,9 @@ export async function aggregateUsage({
         break;
       case "pi":
         summary = await loadPiRows(start, end);
+        break;
+      case "antigravity":
+        summary = await loadAntigravityRows(start, end);
         break;
       default: {
         const exhaustiveCheck: never = provider;

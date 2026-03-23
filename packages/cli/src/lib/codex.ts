@@ -205,9 +205,9 @@ function extractCodexModel(payload?: CodexEventPayload) {
 }
 
 function getCodexHome() {
-  return process.env.CODEX_HOME?.trim()
-    ? resolve(process.env.CODEX_HOME)
-    : join(homedir(), ".codex");
+  const trimmed = process.env.CODEX_HOME?.trim();
+
+  return trimmed ? resolve(trimmed) : join(homedir(), ".codex");
 }
 
 async function getCodexFiles() {

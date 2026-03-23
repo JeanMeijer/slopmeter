@@ -10,20 +10,24 @@ function createValues(overrides?: Partial<{
   amp: boolean;
   claude: boolean;
   codex: boolean;
+  crush: boolean;
   cursor: boolean;
   gemini: boolean;
   opencode: boolean;
   pi: boolean;
+  antigravity: boolean;
 }>) {
   return {
     all: false,
     amp: false,
     claude: false,
     codex: false,
+    crush: false,
     cursor: false,
     gemini: false,
     opencode: false,
     pi: false,
+    antigravity: false,
     ...overrides,
   };
 }
@@ -65,5 +69,14 @@ test("default output suffix follows provider flag order", () => {
       createValues({ pi: true, gemini: true, amp: true, opencode: true }),
     ),
     "_amp_gemini_opencode_pi",
+  );
+});
+
+test("default output suffix includes antigravity", () => {
+  assert.equal(
+    getDefaultOutputSuffix(
+      createValues({ antigravity: true, claude: true }),
+    ),
+    "_claude_antigravity",
   );
 });

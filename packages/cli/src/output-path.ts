@@ -7,20 +7,24 @@ interface ProviderSelectionValues {
   amp: boolean;
   claude: boolean;
   codex: boolean;
+  crush: boolean;
   cursor: boolean;
   gemini: boolean;
   opencode: boolean;
   pi: boolean;
+  antigravity: boolean;
 }
 
 const outputProviderIds: ProviderId[] = [
   "amp",
   "claude",
   "codex",
+  "crush",
   "cursor",
   "gemini",
   "opencode",
   "pi",
+  "antigravity",
 ];
 
 export function getRequestedProvidersForOutput(

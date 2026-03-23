@@ -6,6 +6,8 @@ export type UsageProviderId =
   | "gemini"
   | "opencode"
   | "pi"
+  | "crush"
+  | "antigravity"
   | "all";
 
 export interface UsageSummary {
@@ -38,6 +40,10 @@ export interface ModelUsage {
       output: number;
     };
     total: number;
+  };
+  metric?: {
+    unit: "tokens" | "messages";
+    value: number;
   };
 }
 

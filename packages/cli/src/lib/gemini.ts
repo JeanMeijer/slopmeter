@@ -80,8 +80,8 @@ function getGeminiMessageKey(
     sessionId,
     messageId: message.id,
     timestamp: message.timestamp,
-    model: message.model,
-    tokens: message.tokens,
+    model: normalizeModelName(message.model ?? ""),
+    tokens: message.tokens ? createGeminiTokenTotals(message.tokens) : null,
   });
 }
 

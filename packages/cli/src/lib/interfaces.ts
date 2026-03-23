@@ -3,9 +3,11 @@ export type ProviderId =
   | "claude"
   | "codex"
   | "cursor"
+  | "crush"
   | "gemini"
   | "opencode"
-  | "pi";
+  | "pi"
+  | "antigravity";
 
 export const providerIds: ProviderId[] = [
   "amp",
@@ -15,6 +17,8 @@ export const providerIds: ProviderId[] = [
   "gemini",
   "opencode",
   "pi",
+  "crush",
+  "antigravity",
 ];
 
 export const defaultProviderIds: ProviderId[] = ["claude", "codex", "cursor"];
@@ -27,4 +31,6 @@ export const providerStatusLabel: Record<ProviderId, string> = {
   gemini: "Gemini CLI",
   opencode: "Open Code",
   pi: "Pi Coding Agent",
+  crush: "Crush",
+  antigravity: "Google Antigravity",
 };
