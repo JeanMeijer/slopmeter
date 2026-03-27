@@ -23,7 +23,10 @@ import {
   readJsonlRecords,
   runWithConcurrency,
 } from "./utils";
+
 const CLASSIFICATION_PREFIX_BYTES = 32 * 1024;
+const CODEX_HOME_ENV = "CODEX_HOME";
+const CODEX_SESSIONS_DIR_NAME = "sessions";
 
 interface CodexRawUsage {
   input_tokens?: number;
@@ -204,20 +207,43 @@ function extractCodexModel(payload?: CodexEventPayload) {
   return undefined;
 }
 
-function getCodexHome() {
-  return process.env.CODEX_HOME?.trim()
-    ? resolve(process.env.CODEX_HOME)
-    : join(homedir(), ".codex");
+function getCodexSessionDirs() {
+  const dirs: string[] = [];
+  const seen = new Set<string>();
+  const envHome = process.env[CODEX_HOME_ENV]?.trim();
+  const defaultHomes = [envHome ? resolve(envHome) : join(homedir(), ".codex")];
+
+  if (process.platform === "darwin") {
+    defaultHomes.push(
+      join(homedir(), "Library/Developer/Xcode/CodingAssistant/codex"),
+    );
+  }
+
+  for (const basePath of defaultHomes) {
+    const sessionsDir = join(basePath, CODEX_SESSIONS_DIR_NAME);
+
+    if (!seen.has(sessionsDir)) {
+      seen.add(sessionsDir);
+      dirs.push(sessionsDir);
+    }
+  }
+
+  return dirs;
 }
 
 async function getCodexFiles() {
-  const codexHome = getCodexHome();
+  const sessionDirs = getCodexSessionDirs();
+  const files = (
+    await Promise.all(
+      sessionDirs.map((sessionDir) => listFilesRecursive(sessionDir, ".jsonl")),
+    )
+  ).flat();
 
-  return listFilesRecursive(join(codexHome, "sessions"), ".jsonl");
+  return files.sort((left, right) => left.localeCompare(right));
 }
 
 export function isCodexAvailable() {
-  return existsSync(join(getCodexHome(), "sessions"));
+  return getCodexSessionDirs().some((sessionDir) => existsSync(sessionDir));
 }
 
 function readJsonString(source: string, start: number) {

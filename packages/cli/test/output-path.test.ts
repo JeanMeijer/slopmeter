@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   getDefaultOutputPath,
   getDefaultOutputSuffix,
-} from "../src/output-path.ts";
+} from "../src/output-path";
 
 function createValues(overrides?: Partial<{
   all: boolean;

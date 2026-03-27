@@ -467,7 +467,7 @@ test("--codex only loads Codex and only reports Codex availability", async (t) =
   );
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Codex found/);
+  assert.match(result.stdout, /Codex available/);
   assert.doesNotMatch(result.stdout, /Claude code/);
   assert.doesNotMatch(result.stdout, /Open Code/);
 
@@ -702,6 +702,54 @@ test("Codex advances the cumulative baseline across last-usage-only records", as
   assert.equal(payload.providers[0]?.daily[0]?.total, 145);
 });
 
+test(
+  "Codex automatically includes Xcode Coding Assistant sessions on macOS",
+  { skip: process.platform !== "darwin" },
+  async (t) => {
+    const workspace = createTempWorkspace("codex-xcode-default");
+
+    t.after(() => {
+      rmSync(workspace, { recursive: true, force: true });
+    });
+
+    const homeDir = join(workspace, "home");
+    const outputPath = join(workspace, "out.json");
+    const xcodeCodexDir = join(
+      homeDir,
+      "Library/Developer/Xcode/CodingAssistant/codex",
+    );
+
+    writeJsonlFile(join(xcodeCodexDir, "sessions", "session.jsonl"), [
+      codexTurnContext("gpt-5.4"),
+      codexTokenCount({ input: 9, output: 6, total: 15 }),
+    ]);
+
+    const result = await runCli(
+      ["--codex", "--format", "json", "--output", outputPath],
+      {
+        HOME: homeDir,
+      },
+    );
+
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Codex available/);
+
+    const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+      providers: Array<{
+        provider: string;
+        daily: Array<{ total: number; breakdown: Array<{ name: string }> }>;
+      }>;
+    };
+
+    assert.deepEqual(
+      payload.providers.map((provider) => provider.provider),
+      ["codex"],
+    );
+    assert.equal(payload.providers[0]?.daily[0]?.total, 15);
+    assert.equal(payload.providers[0]?.daily[0]?.breakdown[0]?.name, "gpt-5.4");
+  },
+);
+
 test("--pi only loads Pi Coding Agent and ignores oversized irrelevant session records", async (t) => {
   const workspace = createTempWorkspace("pi-only");
 
@@ -740,7 +788,7 @@ test("--pi only loads Pi Coding Agent and ignores oversized irrelevant session r
   );
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Pi Coding Agent found/);
+  assert.match(result.stdout, /Pi Coding Agent available/);
   assert.doesNotMatch(result.stdout, /Claude code/);
   assert.doesNotMatch(result.stdout, /Codex/);
   assert.doesNotMatch(result.stdout, /Open Code/);
@@ -806,7 +854,7 @@ test("--gemini only loads Gemini CLI and only reports Gemini availability", asyn
   );
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Gemini CLI found/);
+  assert.match(result.stdout, /Gemini CLI available/);
   assert.doesNotMatch(result.stdout, /Claude code/);
   assert.doesNotMatch(result.stdout, /Codex/);
   assert.doesNotMatch(result.stdout, /Open Code/);
@@ -1088,8 +1136,8 @@ test("Gemini CLI participates in multi-provider output order", async (t) => {
   );
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Gemini CLI found/);
-  assert.match(result.stdout, /Pi Coding Agent found/);
+  assert.match(result.stdout, /Gemini CLI available/);
+  assert.match(result.stdout, /Pi Coding Agent available/);
 
   const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
     providers: Array<{ provider: string }>;
@@ -1214,6 +1262,70 @@ test("Claude JSONL streaming preserves usage results across multiple files", asy
   );
   assert.equal(payload.providers[0]?.daily[0]?.total, 25);
 });
+
+test(
+  "Claude automatically includes Xcode Coding Assistant sessions on macOS",
+  { skip: process.platform !== "darwin" },
+  async (t) => {
+    const workspace = createTempWorkspace("claude-xcode-default");
+
+    t.after(() => {
+      rmSync(workspace, { recursive: true, force: true });
+    });
+
+    const homeDir = join(workspace, "home");
+    const outputPath = join(workspace, "out.json");
+    const xcodeClaudeConfig = join(
+      homeDir,
+      "Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig",
+    );
+
+    writeJsonlFile(
+      join(
+        xcodeClaudeConfig,
+        "projects",
+        "sample-project",
+        "session.jsonl",
+      ),
+      [
+        claudeEntry({
+          messageId: "m-xcode-1",
+          requestId: "r-xcode-1",
+          model: "claude-opus-4-6",
+          input: 8,
+          output: 7,
+        }),
+      ],
+    );
+
+    const result = await runCli(
+      ["--claude", "--format", "json", "--output", outputPath],
+      {
+        HOME: homeDir,
+      },
+    );
+
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Claude code available/);
+
+    const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
+      providers: Array<{
+        provider: string;
+        daily: Array<{ total: number; breakdown: Array<{ name: string }> }>;
+      }>;
+    };
+
+    assert.deepEqual(
+      payload.providers.map((provider) => provider.provider),
+      ["claude"],
+    );
+    assert.equal(payload.providers[0]?.daily[0]?.total, 15);
+    assert.equal(
+      payload.providers[0]?.daily[0]?.breakdown[0]?.name,
+      "claude-opus-4-6",
+    );
+  },
+);
 
 test("Cursor streams CSV rows without buffering the full export", async () => {
   const encoder = new TextEncoder();
@@ -1551,7 +1663,7 @@ test("OpenCode reads the legacy file-backed message layout", async (t) => {
   );
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Open Code found/);
+  assert.match(result.stdout, /Open Code available/);
 
   const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
     providers: Array<{ provider: string; daily: Array<{ total: number }> }>;
@@ -1599,7 +1711,7 @@ test("OpenCode prefers the SQLite message store when opencode.db exists", async 
   );
 
   assert.equal(result.code, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Open Code found/);
+  assert.match(result.stdout, /Open Code available/);
 
   const payload = JSON.parse(readFileSync(outputPath, "utf8")) as {
     providers: Array<{ provider: string; daily: Array<{ total: number }> }>;
