@@ -100,6 +100,12 @@ function getClaudeConfigPaths() {
 
   const defaults = [join(xdgConfigHome, "claude"), join(homedir(), ".claude")];
 
+  if (process.platform === "darwin") {
+    defaults.push(
+      join(homedir(), "Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig"),
+    );
+  }
+
   const envPaths = (process.env[CLAUDE_CONFIG_DIR_ENV] ?? "").trim();
 
   const envResolved =

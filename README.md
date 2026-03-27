@@ -126,8 +126,8 @@ Model names are normalized to remove a trailing date suffix like `-20251101`.
 
 ## Data locations
 
-- Claude Code: `$CLAUDE_CONFIG_DIR/*/projects` (comma-separated dirs) or defaults `~/.config/claude/projects` and `~/.claude/projects`
-- Codex: `$CODEX_HOME/sessions` or `~/.codex/sessions`
+- Claude Code: `$CLAUDE_CONFIG_DIR/*/projects` (comma-separated dirs) or defaults `~/.config/claude/projects`, `~/.claude/projects`, and on macOS `~/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects`
+- Codex: `$CODEX_HOME/sessions` or `~/.codex/sessions`, plus on macOS `~/Library/Developer/Xcode/CodingAssistant/codex/sessions`
 - Cursor: reads `cursorAuth/accessToken` and `cursorAuth/refreshToken` from `$CURSOR_STATE_DB_PATH`, `$CURSOR_CONFIG_DIR/User/globalStorage/state.vscdb`, `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` (macOS), `%APPDATA%/Cursor/User/globalStorage/state.vscdb` (Windows), or `~/.config/Cursor/User/globalStorage/state.vscdb` (Linux), then loads usage from Cursor's CSV export endpoint
 - Gemini CLI: `$GEMINI_CONFIG_DIR/tmp/**/chats/session-*.json` or `~/.gemini/tmp/**/chats/session-*.json`
 - Open Code: prefers `$OPENCODE_DATA_DIR/opencode.db` or `~/.local/share/opencode/opencode.db`, and falls back to `$OPENCODE_DATA_DIR/storage/message` or `~/.local/share/opencode/storage/message`
